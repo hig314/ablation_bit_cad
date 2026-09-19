@@ -118,7 +118,7 @@ def copper_screw(P):
 def printed_body(P, report=None):
     N, R, rc, H, B, f, hr, hh, hc, c, skin, ring, cav, rs = (P[k] for k in ("N", "R", "rc", "H", "B", "f", "hr", "hh", "hc", "c", "skin", "ring", "cav", "rs"))
     dth = 2 * math.pi / N; Rb = R - ring; zTop = H + B; zRoot = zTop - hr; zStub = max(hh + hc, H + 1)
-    body = None
+    wedges = []
     for k in range(N):
         th = k * dth
         twisted = sector(rc, Rb, th - dth, th).twistExtrude(H, math.degrees(dth))            # region above the helicoid
@@ -133,7 +133,18 @@ def printed_body(P, report=None):
                 cav_lo = cav_tw.intersect(sector(rc + f + skin, Rb - skin, cA, cB, skin).extrude(H))
                 cav_hi = sector(rc + f + skin, Rb - skin, cA, cB, H + skin).extrude(zRoot - skin - H - skin)
                 wedge = wedge.cut(cav_lo.union(cav_hi))
-        body = wedge if body is None else body.union(wedge)
+        wedges.append(wedge.val())
+
+    # Fuse every wedge in one boolean rather than N-1 sequential unions.
+    #
+    # Sequential union cleans after each step, and the merged helicoid faces
+    # that cleaning produces then fail to fuse with the wedge that closes the
+    # circle: OpenCascade returns a null shape. It happened to survive at
+    # N = 6 and failed at N = 4 and N = 9, which would have met any
+    # collaborator who changed the tooth count. One fuse of all N wedges,
+    # cleaned once at the end, is both robust and faster.
+    body = cq.Workplane("XY").newObject([wedges[0].fuse(*wedges[1:])]).clean()
+
     if ring > 0:
         body = body.union(cyl(R, H, zTop, r_in=Rb - 0.01))
     # centre: collar below the stub, clearance bore above it

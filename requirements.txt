@@ -1,4 +1,5 @@
 numpy
 scipy
 matplotlib
-cadquery
+
+# CadQuery is pinned in cad/environment.yml; install it with conda, not pip.

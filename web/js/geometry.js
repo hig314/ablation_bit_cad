@@ -178,8 +178,12 @@ export function buildParts(P) {
 
   for (let k = 0; k < N; k++) {
     const th = k * dth, thNext = th + dth;
-    parts.blades.push(prismSolid(rc, Rb, th, 0, zRoot, () => 0, off));
-    if (hr > 0 && f > 0) parts.blades.push(prismSolid(rc, Rb, th, zRoot, zTop, () => -f, z => off(z) + f));
+    // Blades stop one clearance short of the armature ring, matching
+    // blade_solid() in cad/make_cad.py. Drawing them all the way to Rb made
+    // the viewer show a 0.2 mm longer blade than the mill would cut.
+    const rBlade = Rb - c;
+    parts.blades.push(prismSolid(rc, rBlade, th, 0, zRoot, () => 0, off));
+    if (hr > 0 && f > 0) parts.blades.push(prismSolid(rc, rBlade, th, zRoot, zTop, () => -f, z => off(z) + f));
     if (f > 0) parts.blades.push(prismSolid(rc, rc + f, th, zStub, zRoot, () => -f, z => off(z) + f));
 
     // printed wedge behind blade k; its pocket walls follow the blade faces plus clearance
