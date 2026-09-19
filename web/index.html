@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ablation screw bit</title>
+<meta name="description" content="Parametric draft of a drill-bit-shaped ice ablation monitor: copper cutter, printed insulating wedge, fit checks and a lumped thermal model.">
+<style>
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("vendor/fonts/plex-sans-400.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url("vendor/fonts/plex-sans-600.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("vendor/fonts/plex-mono-500.woff2") format("woff2"); }
+
+  :root {
+    --bg: #e7eff4; --panel: #f6f9fb; --ink: #17242c; --muted: #5b6b75; --line: #c9d6de;
+    --copper: #b87333; --plastic: #3b5f9e; --ice: #8fc6e2; --accent: #1d5a7a; --focus: #d26e1f;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #101a21; --panel: #172129; --ink: #e6eef3; --muted: #93a4ae; --line: #2d3d48; --accent: #7fc0e0; color-scheme: dark;
+  } }
+  :root[data-theme="dark"] { --bg: #101a21; --panel: #172129; --ink: #e6eef3; --muted: #93a4ae; --line: #2d3d48; --accent: #7fc0e0; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.45; display: grid; grid-template-columns: 330px 1fr; grid-template-rows: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 18px 18px 28px; }
+  h1 { font-size: 17px; font-weight: 600; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 12.5px; margin: 0 0 16px; }
+  fieldset { border: 0; border-top: 1px solid var(--line); margin: 14px 0 0; padding: 12px 0 0; }
+  legend { padding: 0 6px 0 0; font-weight: 600; font-size: 13px; color: var(--ink); }
+  .row { display: grid; grid-template-columns: 1fr 72px; align-items: center; gap: 8px; margin: 6px 0; }
+  .row label { font-size: 13px; color: var(--ink); }
+  .row label small { color: var(--muted); display: block; font-size: 11.5px; }
+  .row input[type=number] { width: 72px; font: 500 13px "IBM Plex Mono", ui-monospace, monospace; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); text-align: right; }
+  .row input[type=range] { grid-column: 1 / -1; width: 100%; margin: 0 0 2px; accent-color: var(--accent); }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .toggles label { display: flex; gap: 8px; align-items: center; margin: 5px 0; font-size: 13px; }
+  .toggles input { accent-color: var(--accent); }
+  table.stats { width: 100%; border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  table.stats td { padding: 3px 0; font-size: 13px; border-bottom: 1px dashed var(--line); }
+  table.stats td:last-child { text-align: right; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .warn { color: var(--focus); font-weight: 500; }
+  button { font: 500 13px "IBM Plex Sans", sans-serif; color: var(--bg); background: var(--accent); border: 0; border-radius: 5px; padding: 8px 12px; cursor: pointer; margin: 10px 8px 0 0; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button[disabled] { opacity: .45; cursor: default; }
+  #status { color: var(--muted); font-size: 12.5px; min-height: 18px; margin-top: 6px; }
+  main { position: relative; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .hint { position: absolute; left: 14px; bottom: 12px; color: var(--muted); font-size: 12px; pointer-events: none; }
+  .legend { position: absolute; right: 14px; top: 12px; font-size: 12.5px; display: grid; gap: 4px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+
+  /* Added in the refactor: export controls, version line, and a layout that
+     survives being embedded in a 640 px iframe or opened on a phone. */
+  .btnrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  button { margin: 0; }
+  #version { color: var(--muted); font-size: 12px; margin: 14px 0 0; }
+  #version a { color: var(--accent); }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  @media (max-width: 760px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 46vh 54vh; }
+    aside { order: 2; border-right: 0; border-top: 1px solid var(--line); }
+    main { order: 1; }
+    .legend { display: none; }
+  }
+
+</style>
+</head>
+<body>
+<aside>
+  <h1>Ablation screw bit</h1>
+  <p class="sub">Parametric draft of the copper cutter and the printed insulating wedge. Drag to orbit, scroll to zoom, right-drag to pan.</p>
+
+  <div id="controls"></div>
+
+  <fieldset><legend>Derived</legend>
+    <table class="stats" id="stats"></table>
+  </fieldset>
+
+  <fieldset><legend>Export</legend>
+    <div class="btnrow">
+      <button id="exportBtn">Save STL files (zip)</button>
+      <button class="secondary" id="jsonBtn">Save parameters.json</button>
+      <button class="secondary" id="copyBtn">Copy link</button>
+      <button class="secondary" id="loadBtn">Load parameters…</button>
+      <button class="secondary" id="resetView">Reset view</button>
+    </div>
+    <input type="file" id="loadFile" accept="application/json,.json" class="visually-hidden" tabindex="-1">
+    <div id="status"></div>
+  </fieldset>
+
+  <p id="version"></p>
+</aside>
+
+<main>
+  <canvas id="view3d"></canvas>
+  <div class="legend">
+    <span><i style="background:#b87333"></i>copper: centre, blades, top disk, hub</span>
+    <span><i style="background:#3b5f9e"></i>printed body: wedges, armature ring, centre collar</span>
+    <span><i style="background:#dfe7f5;border:1px solid #9fb"></i>internal cavity</span>
+  </div>
+  <div class="hint">Millimetres. Tooth tips at z = 0; the bit turns clockwise seen from above, blades leading. Three bodies: copper body, copper screw, printed body.</div>
+</main>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

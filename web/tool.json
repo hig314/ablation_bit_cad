@@ -1,0 +1,8 @@
+{
+  "slug": "ablation-bit",
+  "name": "Ablation screw bit",
+  "version": "0.0.0-dev",
+  "min_height": 640,
+  "repo": "https://github.com/hig314/ablation_bit_cad",
+  "built": null
+}

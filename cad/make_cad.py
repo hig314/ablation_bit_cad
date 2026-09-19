@@ -1,7 +1,7 @@
 """
 Ablation screw bit — CAD generator.
 
-  python make_cad.py [parameters.json] [out_dir]
+  python make_cad.py [parameters.json] [out_dir] [--check]
 
 Reads the parameter set saved by the viewer (parameters.json inside its zip) or uses the viewer defaults,
 builds exact B-rep solids with CadQuery/OpenCascade and writes:
@@ -115,7 +115,7 @@ def copper_screw(P):
     socket = cq.Workplane("XY").workplane(offset=-0.5).polygon(6, 4.0 / math.cos(math.pi / 6)).extrude(2.5)  # 4 mm A/F hex, 2 mm deep
     return s.cut(socket)
 
-def printed_body(P):
+def printed_body(P, report=None):
     N, R, rc, H, B, f, hr, hh, hc, c, skin, ring, cav, rs = (P[k] for k in ("N", "R", "rc", "H", "B", "f", "hr", "hh", "hc", "c", "skin", "ring", "cav", "rs"))
     dth = 2 * math.pi / N; Rb = R - ring; zTop = H + B; zRoot = zTop - hr; zStub = max(hh + hc, H + 1)
     body = None
@@ -139,17 +139,98 @@ def printed_body(P):
     # centre: collar below the stub, clearance bore above it
     body = body.union(cyl(rc + 0.01, hh, zStub, r_in=rs + c))
     body = body.cut(cyl(rc + c, zStub - c, zTop + 1))
-    # pockets for the blades, with clearance on every face
+    # Pockets for the blades, with clearance on every face.
+    #
+    # clean=False is deliberate. OpenCascade 7.9 (CadQuery 2.8) raises
+    # "Courbes non jointives" while trying to unify the faces these cuts
+    # leave behind. The boolean result itself is sound; only the cosmetic
+    # face merging fails. Skipping it and checking the result afterwards is
+    # safer than pinning to whichever older kernel happened to merge them.
     for k in range(N):
-        body = body.cut(blade_solid(P, 2 * math.pi * k / N, grow=c))
-    return body
+        body = body.cut(blade_solid(P, 2 * math.pi * k / N, grow=c), clean=False)
+    return keep_main_solid(body, report)
+
+
+def keep_main_solid(wp, report=None):
+    """
+    Keep the largest solid, recording anything else that fell off.
+
+    The pocket cut reaches to r = Rb, exactly the armature ring's inner
+    face, so those two surfaces are coincident. Whether the kernel merges
+    them or leaves a sliver behind is version-dependent: OCC 7.9 leaves one
+    of about 0.75 cm3 spanning the full height. The printed part is meant to
+    be a single piece, so any extra solid is dropped and reported instead of
+    being exported into the STL, where it would slice as loose debris beside
+    the real part.
+
+    If a fragment is ever a large fraction of the part, that is a design
+    problem rather than a kernel artefact, and --check will fail on it.
+    """
+    solids = wp.solids().vals()
+    if len(solids) <= 1:
+        return wp
+    solids = sorted(solids, key=lambda s: s.Volume(), reverse=True)
+    if report is not None:
+        report["fragments"] = [s.Volume() / 1000 for s in solids[1:]]
+    return cq.Workplane("XY").newObject([solids[0]])
+
+
+FRAGMENT_LIMIT_PCT = 5.0
+
+
+def run_checks(P, cu, sc, pl, report):
+    """
+    Assertions the README used to ask the operator to run by hand. Returns a
+    list of problem strings; empty means the build is sound.
+    """
+    problems = []
+
+    for name, wp, want in (("copper body", cu, 1), ("screw", sc, 1), ("printed body", pl, 1)):
+        n = len(wp.solids().vals())
+        if n != want:
+            problems.append("%s is %d solids, expected %d" % (name, n, want))
+
+    # A solid with V internal voids has V + 1 shells. One cavity per wedge is
+    # the design; fewer means cavities failed to form, more means a boolean
+    # left a bubble in the plastic.
+    if P["cav"] > 0 and P["B"] > P["hr"] + 2 * P["skin"] + 1:
+        voids = len(pl.val().Shells()) - 1
+        if voids != P["N"]:
+            problems.append("printed body has %d internal voids, expected %d" % (voids, P["N"]))
+
+    # The copper must not occupy the same space as the plastic, or the parts
+    # cannot be assembled. This is the check the original README described.
+    try:
+        overlap = cu.intersect(pl, clean=False).val().Volume()
+    except Exception as exc:                       # an empty intersection can raise
+        overlap = 0.0
+        if "empty" not in str(exc).lower():
+            problems.append("could not intersect copper with plastic: %s" % exc)
+    if overlap > 1.0:                              # mm3; below this is boolean noise
+        problems.append("copper and plastic overlap by %.1f mm3" % overlap)
+
+    # A small sliver here is the known coincident-face artefact described in
+    # keep_main_solid, harmless once dropped. A large one means the part has
+    # genuinely come apart and the parameters need looking at.
+    for frag in report.get("fragments", []):
+        pct = 100 * frag / (pl.val().Volume() / 1000)
+        if pct > FRAGMENT_LIMIT_PCT:
+            problems.append("a %.2f cm3 fragment (%.1f%% of the part) broke off the printed body"
+                            % (frag, pct))
+
+    return problems
+
 
 def main():
-    pjson = sys.argv[1] if len(sys.argv) > 1 else None
-    out = sys.argv[2] if len(sys.argv) > 2 else "cad_out"
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    flags = {a for a in sys.argv[1:] if a.startswith("--")}
+    check = "--check" in flags
+    pjson = args[0] if len(args) > 0 and args[0] else None
+    out = args[1] if len(args) > 1 else "cad_out"
     os.makedirs(out, exist_ok=True)
     P = load_params(pjson)
-    cu = copper_body(P); sc = copper_screw(P); pl = printed_body(P)
+    report = {}
+    cu = copper_body(P); sc = copper_screw(P); pl = printed_body(P, report)
     cq.exporters.export(cu, f"{out}/copper_body.step")
     cq.exporters.export(sc, f"{out}/copper_screw.step")
     cq.exporters.export(pl, f"{out}/printed_body.step")
@@ -182,7 +263,20 @@ Assembly: slide the printed body up over the blades from below, then fit the scr
     with open(f"{out}/README.txt", "w") as fh:
         fh.write(readme)
     print(readme)
-    print("copper solids:", len(cu.solids().vals()), " screw solids:", len(sc.solids().vals()), " printed solids:", len(pl.solids().vals()))
+    print("copper solids:", len(cu.solids().vals()),
+          " screw solids:", len(sc.solids().vals()),
+          " printed solids:", len(pl.solids().vals()))
+    for frag in report.get("fragments", []):
+        print("NOTE: dropped a %.2f cm3 fragment that detached from the printed body" % frag)
+
+    if check:
+        problems = run_checks(P, cu, sc, pl, report)
+        if problems:
+            print("\nCHECKS FAILED:")
+            for p in problems:
+                print("  -", p)
+            sys.exit(1)
+        print("\nchecks passed: one solid per body, %d internal voids, no copper/plastic overlap" % P["N"])
 
 if __name__ == "__main__":
     main()
