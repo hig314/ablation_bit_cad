@@ -1,0 +1,27 @@
+# Build output
+dist/
+
+# CAD script output
+cad_out/
+out/
+*.step
+*.stl
+*.dxf
+!tests/fixtures/*.json
+
+# Generated figures (regenerate with the scripts in diagrams/ and analysis/)
+diagrams/*.png
+diagrams/*.svg
+analysis/*.png
+analysis/*.svg
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Node
+node_modules/
+
+# macOS
+.DS_Store

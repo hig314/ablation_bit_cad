@@ -1,0 +1,17 @@
+# Reference CAD environment for make_cad.py.
+#   conda env create -f cad/environment.yml
+#   conda activate ablation-cad
+#   python cad/make_cad.py [parameters.json] [out_dir]
+#
+# CadQuery is pinned because its API and the OpenCascade kernel under it
+# change across releases; an unpinned environment is how a "working" script
+# silently starts producing different solids.
+name: ablation-cad
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - cadquery=2.8.0
+  - numpy
+  - scipy
+  - matplotlib
