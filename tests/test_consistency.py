@@ -73,9 +73,9 @@ EXPLAINED = {
 # is what protects the rules in the meantime.
 # ---------------------------------------------------------------------------
 UNRESOLVED = {
-    ("many_teeth.json", "printed_body"): (+14.70, "cavity shape"),
-    ("few_teeth.json", "printed_body"): (-15.64, "cavity shape"),
-    ("thick_blades.json", "printed_body"): (+4.17, "the two sides end the wedge in "
+    ("many_teeth.json", "printed_body"): (+14.29, "cavity shape"),
+    ("few_teeth.json", "printed_body"): (-14.77, "cavity shape"),
+    ("thick_blades.json", "printed_body"): (+3.67, "the two sides end the wedge in "
         "slightly different places where the blades close up: the viewer trims each "
         "piece at the height its own gap shuts, the CAD script subtracts the blade "
         "solid"),

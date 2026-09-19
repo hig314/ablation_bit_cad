@@ -383,14 +383,39 @@ export function buildParts(P) {
     // pieces used to add up to, so nothing changes on a design that fits.
     const hasStep = f > 0 && hr > 0;
 
+    // The split sits where the blade's root step begins, less the fit
+    // clearance, because the pocket cut around that step starts a clearance
+    // early. Splitting at zRoot itself left a clearance-thick band of
+    // full-width plastic lying inside the pocket.
+    const zStepTop = zRoot - c;
+
     parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA, thB,
-      zb: t => ramp(t), zt: until(hasStep ? zRoot : zTop, 0), nu: 40, nr: 16, nz: 8 }));
+      zb: t => ramp(t), zt: until(hasStep ? zStepTop : zTop, 0), nu: 40, nr: 16, nz: 8 }));
     if (hasStep) {
       parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA: notchA, thB: notchB,
-        zb: t => Math.max(zRoot, ramp(t)), zt: until(zTop, f), nu: 40, nr: 12, nz: 4 }));
+        zb: t => Math.max(zStepTop, ramp(t)), zt: until(zTop, f), nu: 40, nr: 12, nz: 4 }));
     }
-    if (f > 0) parts.plastic.push(sectorSolid({ r0: rc, r1: rc + f, thA, thB,
-      zb: t => ramp(t), zt: until(zStub, 0), nu: 40, nr: 4, nz: 4 }));
+    // Inside the wedge proper, beside the copper stub, the same two-piece
+    // split applies again. Below the stub the blade is its plain thickness;
+    // from the stub up to the disk it carries its inner root step, so the
+    // plastic there is notched back by one step just as the upper wedge is.
+    //
+    // That upper part was missing entirely: the band simply stopped at the
+    // stub, which left the trailing face with a step along its inner edge
+    // and took about 13 mm3 out of each wedge at the defaults. Its inner
+    // radius is the clearance bore above the collar, which is what the CAD
+    // script cuts there.
+    if (f > 0) {
+      // Same again beside the stub: the inner root step's pocket also starts
+      // a clearance below the stub, which is where the CAD script bores.
+      const zInnerTop = zStub - c;
+      parts.plastic.push(sectorSolid({ r0: rc, r1: rc + f, thA, thB,
+        zb: t => ramp(t), zt: until(zInnerTop, 0), nu: 40, nr: 4, nz: 4 }));
+      if (zRoot > zInnerTop) {
+        parts.plastic.push(sectorSolid({ r0: rc + c, r1: rc + f, thA: notchA, thB: notchB,
+          zb: t => Math.max(zInnerTop, ramp(t)), zt: until(zRoot, f), nu: 24, nr: 4, nz: 4 }));
+      }
+    }
     if (cav > 0 && B > hr + 2 * skin + 1) {
       const cA = r => notchA(r) + skin / r;
       const cB = r => th + cav * dth - skin / r;
