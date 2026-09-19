@@ -131,6 +131,23 @@ function syncHash() {
   const h = encode(P, toggles);
   hashOurs = h ? '#' + h : '#';
   history.replaceState(null, '', hashOurs);
+  notifyHost(hashOurs);
+}
+
+/**
+ * Tell the page embedding us that the design changed, so it can put the
+ * link in its own address bar.
+ *
+ * replaceState fires no event, so a host cannot observe our hash without
+ * polling, and a 2 Hz poll is enough to stop a page ever going idle. This
+ * says it explicitly instead. Addressed to our own origin, so a host on a
+ * different origin simply never receives it.
+ */
+function notifyHost(hash) {
+  if (window.parent === window) return;
+  try {
+    window.parent.postMessage({ type: 'tool-state', slug: 'ablation-bit', hash }, window.location.origin);
+  } catch (e) { /* nothing listening; not an error */ }
 }
 // A link pasted into the address bar, or the parent page pushing state in.
 window.addEventListener('hashchange', () => {
@@ -224,5 +241,6 @@ wireButtons();
 rebuild();
 viewer.resize();
 if (!initial.empty) syncHash();
+notifyHost(window.location.hash || '#');
 showVersion();
 window.addEventListener('resize', () => viewer.resize());
