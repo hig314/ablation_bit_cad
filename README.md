@@ -72,11 +72,17 @@ solids in Python. Both encode the same design rules, and nothing else checks
 that they still agree.
 
 ```
-conda run -n ablation-cad python tests/test_consistency.py
+node tests/test_geometry.mjs                                  # fast, no CadQuery
+conda run -n ablation-cad python tests/test_consistency.py    # needs the CAD environment
 ```
 
-It compares volumes, extents and cavity counts for each fixture in
-`tests/fixtures/`, allows differences that have a known permanent cause, and
+`test_geometry.mjs` checks invariants the browser geometry must hold for any
+setting the panel can reach: no shell wound inside out, no degenerate
+triangles, no non-finite coordinates. It runs every fixture and both ends of
+every slider in about a second.
+
+`test_consistency.py` compares volumes, extents and cavity counts against the
+CadQuery solids, allows differences that have a known permanent cause, and
 fails on anything else. Differences that are real but not yet resolved are
 pinned to their measured value, so the test fails if one *moves*.
 
@@ -100,6 +106,22 @@ Three things, all invisible before:
 3. **The viewer drew blades 0.2 mm too long**, running them to the ring
    instead of stopping one clearance short as the mill does. Fixed in the
    viewer.
+
+4. **The viewer folded its own surfaces inside out** on designs with thick or
+   numerous blades. A blade is a fixed thickness in millimetres while the
+   pitch shrinks towards the axis, so inside some radius the blades pass
+   through each other and there is no gap left for plastic. The wedge between
+   them inverted, which drew as sheets cutting through the tops of the wedges
+   and a spur of solid hanging off the ramp near the centre. Sectors are now
+   clamped to zero width instead, so nothing is drawn where nothing fits, and
+   the panel says which radius that starts at. Found at 11 teeth with 4.5 mm
+   blades; `tests/fixtures/thick_blades.json` keeps that case covered.
+
+Two smaller things came out of the same work: every disk drawn from the axis
+was emitting a ring of degenerate triangles into the STL, now filtered; and
+`--check` compared the printed body's voids against one per wedge rather than
+against the number of cavities actually cut, so it reported a failure on any
+design that legitimately skips one.
 
 ### Open design question
 

@@ -25,7 +25,29 @@ export function normal(a, b, c) {
 export function quad(tris, a, b, c, d, out) {
   const n = normal(a, c, [a[0] + d[0] - b[0], a[1] + d[1] - b[1], a[2] + d[2] - b[2]]);
   const flip = (n[0] * out[0] + n[1] * out[1] + n[2] * out[2]) < 0;
-  if (flip) { tris.push(a, c, b, a, d, c); } else { tris.push(a, b, c, a, c, d); }
+  if (flip) { tri(tris, a, c, b); tri(tris, a, d, c); }
+  else { tri(tris, a, b, c); tri(tris, a, c, d); }
+}
+
+// Squared area below which a triangle is treated as having none. Coordinates
+// are millimetres, so this is far under any feature the mill or printer
+// could hold.
+export const AREA_EPS = 1e-12;
+
+/**
+ * Add one triangle, unless it has collapsed to a line or a point.
+ *
+ * Two places produce those. A sector clamped to zero width (see sectorSolid)
+ * folds its quads onto a line. And any disk drawn from r = 0 has its
+ * innermost ring of quads sharing the axis point, so half of each is a
+ * sliver. Neither draws anything or holds any volume, but both would be
+ * written into the STL, where degenerate facets are at best noise and at
+ * worst something a slicer complains about.
+ */
+function tri(tris, a, b, c) {
+  const n = normal(a, b, c);
+  if (n[0] * n[0] + n[1] * n[1] + n[2] * n[2] < AREA_EPS) return;
+  tris.push(a, b, c);
 }
 
 /**
@@ -38,7 +60,23 @@ export function quad(tris, a, b, c, d, out) {
  */
 export function sectorSolid({ r0, r1, thA, thB, zb, zt, nu = 24, nr = 4, nz = 1, invert = false }) {
   const tris = [];
-  const th = (u, r, z) => thA(r, z) + u * (thB(r, z) - thA(r, z));
+  // Angular span, never negative.
+  //
+  // A wedge's trailing limit thB crosses back past its leading limit thA
+  // wherever the blade ahead of it is thicker than the pitch leaves room
+  // for. Since the blade's thickness is a fixed number of millimetres and
+  // the pitch shrinks with radius, that always happens inside some radius
+  // once the blades are thick or numerous; there the blades intersect each
+  // other and no plastic can exist between them.
+  //
+  // Letting the sector invert there folds the surface through itself. It
+  // showed up as sheets cutting through the tops of the wedges and a spur
+  // of solid hanging off the ramp near the centre. Clamping to zero says
+  // the truth instead: nothing is there.
+  const th = (u, r, z) => {
+    const s = thB(r, z) - thA(r, z);
+    return thA(r, z) + u * (s > 0 ? s : 0);
+  };
   const pt = (t, r, z) => [r * Math.cos(t), r * Math.sin(t), z];
   const cap = (u, r, zf) => {
     let z = zf(th(u, r, 0), r);
@@ -134,6 +172,20 @@ export function bounds(shells) {
  *   zStub bottom of the copper centre stub (must clear the ramp top)
  *   off(z) blade thickness at height z, tapering from te at the edge to tb
  */
+/**
+ * Radius inside which adjacent blades meet, leaving no room for plastic
+ * between them, or 0 when they never do.
+ *
+ *   plastic exists where  r * (2*pi/N)  >  blade thickness + 2 * clearance
+ *
+ * Evaluated at the top of the blade, where it is thickest.
+ */
+export function closureRadius(P) {
+  const { zStub, dth, off } = derived(P);
+  const r = (off(zStub) + 2 * P.c) / dth;
+  return r > P.rc ? r : 0;
+}
+
 export function derived(P) {
   const zTop = P.H + P.B;
   const zt = P.Zt > 0 ? P.Zt : zTop;

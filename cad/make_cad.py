@@ -129,6 +129,8 @@ def printed_body(P, report=None):
             rm = (rc + Rb) / 2
             cA = th + (c + f + skin) / rm; cB = th + cav * dth - skin / rm
             if cB > cA + 0.02:
+                if report is not None:
+                    report["cavities"] = report.get("cavities", 0) + 1
                 cav_tw = sector(rc + f + skin, Rb - skin, cA - dth, cA, skin).twistExtrude(H, math.degrees(dth))
                 cav_lo = cav_tw.intersect(sector(rc + f + skin, Rb - skin, cA, cB, skin).extrude(H))
                 cav_hi = sector(rc + f + skin, Rb - skin, cA, cB, H + skin).extrude(zRoot - skin - H - skin)
@@ -201,13 +203,19 @@ def run_checks(P, cu, sc, pl, report):
         if n != want:
             problems.append("%s is %d solids, expected %d" % (name, n, want))
 
-    # A solid with V internal voids has V + 1 shells. One cavity per wedge is
-    # the design; fewer means cavities failed to form, more means a boolean
-    # left a bubble in the plastic.
-    if P["cav"] > 0 and P["B"] > P["hr"] + 2 * P["skin"] + 1:
-        voids = len(pl.val().Shells()) - 1
-        if voids != P["N"]:
-            problems.append("printed body has %d internal voids, expected %d" % (voids, P["N"]))
+    # A solid with V internal voids has V + 1 shells. Compare against the
+    # number of cavities the build actually cut rather than re-deriving the
+    # condition here: a cavity is skipped whenever it would be inverted at
+    # its inner radius, and a check that assumed one per wedge would fail on
+    # every design where that happens.
+    wanted = report.get("cavities", 0)
+    voids = len(pl.val().Shells()) - 1
+    if voids != wanted:
+        problems.append("printed body has %d internal voids, but %d cavities were cut"
+                        % (voids, wanted))
+    if wanted == 0 and P["cav"] > 0:
+        problems.append("no cavity fits between the blades, so the printed body is solid "
+                        "and will insulate far less than the design assumes")
 
     # The copper must not occupy the same space as the plastic, or the parts
     # cannot be assembled. This is the check the original README described.

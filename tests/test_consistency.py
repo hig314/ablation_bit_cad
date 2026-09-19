@@ -73,10 +73,26 @@ EXPLAINED = {
 # is what protects the rules in the meantime.
 # ---------------------------------------------------------------------------
 UNRESOLVED = {
-    ("many_teeth.json", "printed_body"): +14.34,
-    ("few_teeth.json", "printed_body"): -15.49,
+    ("many_teeth.json", "printed_body"): (+14.93, "cavity shape"),
+    ("few_teeth.json", "printed_body"): (-15.49, "cavity shape"),
+    ("thick_blades.json", "printed_body"): (+20.89, "cavity shape, plus the viewer "
+        "stops drawing plastic where the blades overlap while the CAD script cuts it "
+        "away with a boolean"),
+    ("thick_blades.json", "copper_body"): (+4.95, "the blades pass through each other "
+        "inside r = 8.6 mm; the viewer adds each blade's volume separately while the "
+        "CAD script unions them, so the viewer counts the overlap twice. The tool says "
+        "so in its warnings"),
 }
 UNRESOLVED_CAVITIES = {"many_teeth.json": (0, 9)}
+
+# Extents that differ for a recorded reason. thick_blades is a design whose
+# blades pass through each other inside r = 8.6 mm; the viewer stops drawing
+# plastic there while the CAD script cuts it away with a boolean, and the two
+# leave the bottom of the ramp in slightly different places.
+UNRESOLVED_EXTENTS = {
+    ("thick_blades.json", "printed_body", "zmin"): 0.136,
+}
+DRIFT_MM = 0.02
 DRIFT_PCT = 0.5
 
 # Extents are geometry both sides should agree on closely: a tessellated
@@ -141,8 +157,9 @@ def compare(fixture_name, verbose=True):
     for name, (tol, reason) in EXPLAINED.items():
         a, b = cq["bodies"][name], js["bodies"][name]
         dev = 100 * (b["volume_cm3"] - a["volume_cm3"]) / a["volume_cm3"]
-        known = UNRESOLVED.get((fixture_name, name))
-        mark = "" if known is None else "  <- tracked"
+        entry = UNRESOLVED.get((fixture_name, name))
+        known = None if entry is None else entry[0]
+        mark = "" if entry is None else "  <- tracked"
         if verbose:
             print("  %-13s %9.3f\u00b3 %9.3f\u00b3 %+7.2f%%   z %.2f..%.2f vs %.2f..%.2f, r %.2f vs %.2f%s"
                   % (name, a["volume_cm3"], b["volume_cm3"], dev,
@@ -158,11 +175,19 @@ def compare(fixture_name, verbose=True):
                                 "(drift %+.2f%%); a rule changed on one side"
                                 % (fixture_name, name, known, dev, drift))
             else:
-                tracked.append("%s %s: %+.2f%% (unresolved cavity-shape disagreement)"
-                               % (fixture_name, name, dev))
+                tracked.append("%s %s: %+.2f%% \u2014 %s"
+                               % (fixture_name, name, dev, entry[1]))
         for key in ("zmin", "zmax", "rmax"):
             d = abs(a[key] - b[key])
-            if d > EXTENT_TOL_MM:
+            rec = UNRESOLVED_EXTENTS.get((fixture_name, name, key))
+            if rec is not None:
+                if abs(d - rec) > DRIFT_MM:
+                    problems.append("%s: %s %s gap moved from the recorded %.3f mm to %.3f mm"
+                                    % (fixture_name, name, key, rec, d))
+                else:
+                    tracked.append("%s %s %s: %.3f mm apart (recorded)"
+                                   % (fixture_name, name, key, d))
+            elif d > EXTENT_TOL_MM:
                 problems.append("%s: %s %s differs by %.3f mm (CadQuery %.3f, viewer %.3f)"
                                 % (fixture_name, name, key, d, a[key], b[key]))
 
@@ -194,7 +219,11 @@ def compare(fixture_name, verbose=True):
     return problems, tracked
 
 
-FIXTURE_FILES = ["default.json", "many_teeth.json", "few_teeth.json"]
+# default is the validated design point. many_teeth and few_teeth push the
+# tooth count either way. thick_blades is a real parameter set a collaborator
+# arrived at, whose blades are thicker than the pitch near the axis; it is
+# here because it used to make the viewer fold its own surfaces inside out.
+FIXTURE_FILES = ["default.json", "many_teeth.json", "few_teeth.json", "thick_blades.json"]
 
 
 def test_consistency():

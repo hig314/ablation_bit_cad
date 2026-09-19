@@ -1,7 +1,7 @@
 // Derived numbers and the fit / tooling checks. Pure: returns rows of
 // {label, value} and a list of warning strings; the caller renders them.
 
-import { derived, groupVolume, BODY_GROUPS } from './geometry.js';
+import { derived, groupVolume, BODY_GROUPS, closureRadius } from './geometry.js';
 
 /** Latent heat of fusion per unit volume of ice, J/m^3. */
 export const RHO_L = 917 * 334e3;
@@ -44,7 +44,19 @@ export function computeStats(P, parts) {
   if (D >= H) warnings.push('tip depth D must stay below H');
   if (inAngle > 60) warnings.push('centre ramp is very steep; enlarge the flat centre');
 
-  return { rows, warnings, rimAngle, inAngle, vCu, vPl };
+  // Blades are a fixed thickness in millimetres while the pitch shrinks
+  // towards the axis, so thick or numerous blades run into each other
+  // somewhere inside the disk. Inside that radius there is no gap to put
+  // plastic in, and the copper figure above double-counts where the blades
+  // pass through one another.
+  const rClose = closureRadius(P);
+  if (rClose > 0) {
+    warnings.push('blades meet each other inside r = ' + rClose.toFixed(1)
+      + ' mm: no plastic fits there and the copper figure double-counts the '
+      + 'overlap. Reduce the blade thickness or the tooth count.');
+  }
+
+  return { rows, warnings, rimAngle, inAngle, vCu, vPl, closureRadius: rClose };
 }
 
 /**
@@ -62,14 +74,24 @@ export function computeFits(P, parts) {
   const gapRim = (R - ring) * dth - (tb + 2 * f);       // between root steps at the outer end
   const threadLen = zTop - 1 - zStub;
 
+  // A negative gap is not a tight gap: it means the two faces have passed
+  // through each other. Say so, rather than printing a negative millimetre
+  // reading that looks like a near miss.
+  const gap = v => v.toFixed(1) + (v < 0 ? ' mm \u2014 they overlap' : ' mm');
+
   const rows = [
-    ['Gap between blade roots at the stub', gapRootInner.toFixed(1) + ' mm', gapRootInner < tool],
-    ['Gap between blades at the stub, below the roots', gapBladeInner.toFixed(1) + ' mm', gapBladeInner < tool],
-    ['Gap between roots at the rim', gapRim.toFixed(1) + ' mm', gapRim < tool],
+    ['Gap between blade roots at the stub', gap(gapRootInner), gapRootInner < tool],
+    ['Gap between blades at the stub, below the roots', gap(gapBladeInner), gapBladeInner < tool],
+    ['Gap between roots at the rim', gap(gapRim), gapRim < tool],
     ['Pocket clearance to each blade face', c.toFixed(2) + ' mm', c <= 0],
     ['Collar bore clearance to shank', c.toFixed(2) + ' mm', c <= 0],
     ['Thread engagement in the stub', threadLen.toFixed(1) + ' mm', threadLen < 1.5 * rs],
     ['Screw head + collar below the stub', (hh + hc).toFixed(1) + ' mm (stub bottom at z = ' + zStub.toFixed(1) + ')', false],
   ];
-  return { rows, note: `Warnings mark gaps narrower than the ${tool} mm tool or zero clearances.` };
+  const rClose = closureRadius(P);
+  const note = `Warnings mark gaps narrower than the ${tool} mm tool or zero clearances.`
+    + (rClose > 0
+        ? ` Inside r = ${rClose.toFixed(1)} mm the blades pass through one another, so the printed body is drawn with nothing between them there.`
+        : '');
+  return { rows, note };
 }
