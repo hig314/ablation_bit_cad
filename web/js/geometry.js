@@ -60,65 +60,93 @@ function tri(tris, a, b, c) {
  */
 export function sectorSolid({ r0, r1, thA, thB, zb, zt, nu = 24, nr = 4, nz = 1, invert = false }) {
   const tris = [];
+
   // Angular span, never negative.
   //
   // A wedge's trailing limit thB crosses back past its leading limit thA
   // wherever the blade ahead of it is thicker than the pitch leaves room
-  // for. Since the blade's thickness is a fixed number of millimetres and
-  // the pitch shrinks with radius, that always happens inside some radius
-  // once the blades are thick or numerous; there the blades intersect each
-  // other and no plastic can exist between them.
-  //
-  // Letting the sector invert there folds the surface through itself. It
-  // showed up as sheets cutting through the tops of the wedges and a spur
-  // of solid hanging off the ramp near the centre. Clamping to zero says
-  // the truth instead: nothing is there.
-  const th = (u, r, z) => {
-    const s = thB(r, z) - thA(r, z);
-    return thA(r, z) + u * (s > 0 ? s : 0);
-  };
+  // for. The blade's thickness is a fixed number of millimetres while the
+  // pitch shrinks with radius, so on a thick or crowded bit that always
+  // happens inside some radius: there the blades intersect each other and
+  // no plastic can exist between them. Letting the sector invert folds the
+  // surface through itself, so it is clamped shut instead.
+  const span = (r, z) => { const s = thB(r, z) - thA(r, z); return s > 0 ? s : 0; };
+  const th = (u, r, z) => thA(r, z) + u * span(r, z);
   const pt = (t, r, z) => [r * Math.cos(t), r * Math.sin(t), z];
-  const cap = (u, r, zf) => {
+
+  // A bounding height depends on theta, and on a helicoid theta depends back
+  // on the height. Two or three fixed-point passes settle that to far below
+  // the tessellation error.
+  const solve = (u, r, zf) => {
     let z = zf(th(u, r, 0), r);
     for (let k = 0; k < 3; k++) z = zf(th(u, r, z), r);
-    return pt(th(u, r, z), r, z);
+    return z;
   };
+  const bot = (u, r) => solve(u, r, zb);
+  // The caller may hand us a top that has been trimmed below the bottom,
+  // which is how "this piece has closed up by here" is expressed. Pinning
+  // the top to the bottom turns that into no solid rather than one turned
+  // inside out in z.
+  const top = (u, r) => { const b = bot(u, r), t = solve(u, r, zt); return t > b ? t : b; };
+
+  // Is there any solid at this corner? Emitting faces around a corner with
+  // no angular width or no height is what produced free-floating sheets and
+  // the crumpled ribbon at the centre: the faces still have area even
+  // though they bound nothing.
+  const alive = (u, r) => {
+    const b = bot(u, r), t = top(u, r);
+    if (t - b <= HEIGHT_EPS) return false;
+    return span(r, (b + t) / 2) > SPAN_EPS;
+  };
+
   const rs = [], us = [];
   for (let j = 0; j <= nr; j++) rs.push(r0 + (r1 - r0) * j / nr);
   for (let i = 0; i <= nu; i++) us.push(i / nu);
+
   // top and bottom caps
   for (let i = 0; i < nu; i++) for (let j = 0; j < nr; j++) {
-    const c = [[us[i], rs[j]], [us[i + 1], rs[j]], [us[i + 1], rs[j + 1]], [us[i], rs[j + 1]]];
-    quad(tris, ...c.map(([u, r]) => cap(u, r, zt)), [0, 0, 1]);
-    quad(tris, ...c.map(([u, r]) => cap(u, r, zb)), [0, 0, -1]);
+    const corners = [[us[i], rs[j]], [us[i + 1], rs[j]], [us[i + 1], rs[j + 1]], [us[i], rs[j + 1]]];
+    if (!corners.some(([u, r]) => alive(u, r))) continue;
+    quad(tris, ...corners.map(([u, r]) => pt(th(u, r, top(u, r)), r, top(u, r))), [0, 0, 1]);
+    quad(tris, ...corners.map(([u, r]) => pt(th(u, r, bot(u, r)), r, bot(u, r))), [0, 0, -1]);
   }
+
   // cylindrical walls at r0 and r1
   const wallPt = (u, r, f) => {
-    const b = cap(u, r, zb), t = cap(u, r, zt);
-    const z = b[2] + f * (t[2] - b[2]);
+    const b = bot(u, r), t = top(u, r), z = b + f * (t - b);
     return pt(th(u, r, z), r, z);
   };
   for (let i = 0; i < nu; i++) for (let k = 0; k < nz; k++) {
     const f0 = k / nz, f1 = (k + 1) / nz;
     for (const [r, sgn] of [[r1, 1], [r0, -1]]) {
       if (r <= 1e-6) continue;
+      if (!alive(us[i], r) && !alive(us[i + 1], r)) continue;
       const tm = th((us[i] + us[i + 1]) / 2, r, 0);
       quad(tris, wallPt(us[i], r, f0), wallPt(us[i + 1], r, f0), wallPt(us[i + 1], r, f1), wallPt(us[i], r, f1),
            [sgn * Math.cos(tm), sgn * Math.sin(tm), 0]);
     }
   }
+
   // radial walls at thA and thB
   for (let j = 0; j < nr; j++) for (let k = 0; k < nz; k++) {
     const f0 = k / nz, f1 = (k + 1) / nz;
     for (const [u, sgn] of [[0, -1], [1, 1]]) {
-      const r_a = rs[j], r_b = rs[j + 1], tm = th(u, (r_a + r_b) / 2, 0);
+      const r_a = rs[j], r_b = rs[j + 1];
+      if (!alive(u, r_a) && !alive(u, r_b)) continue;
+      const tm = th(u, (r_a + r_b) / 2, 0);
       quad(tris, wallPt(u, r_a, f0), wallPt(u, r_b, f0), wallPt(u, r_b, f1), wallPt(u, r_a, f1),
            [-sgn * Math.sin(tm), sgn * Math.cos(tm), 0]);
     }
   }
+
   if (invert) for (let k = 0; k < tris.length; k += 3) { const t = tris[k + 1]; tris[k + 1] = tris[k + 2]; tris[k + 2] = t; }
   return tris;
 }
+
+// Below these a corner is treated as having no width or no height. Angles
+// are radians, heights millimetres.
+const SPAN_EPS = 1e-9;
+const HEIGHT_EPS = 1e-7;
 
 /**
  * Radial prism between the rear offset dR(z) and the front offset dF(z)
@@ -186,6 +214,31 @@ export function closureRadius(P) {
   return r > P.rc ? r : 0;
 }
 
+/**
+ * Height at which the gap a piece needs has closed up, at radius r.
+ *
+ * A blade is `off(z)` thick, growing with height, while the gap between two
+ * blades at radius r is only r*dth wide. A piece that also needs `extra`
+ * millimetres of room beyond the blade and its two clearances therefore
+ * exists only below the height where
+ *
+ *     off(z)  =  r*dth - 2c - extra
+ *
+ * Returns +Infinity when the piece never closes and -Infinity when it never
+ * opens. Callers use it to trim a piece's top, which turns a wedge that runs
+ * out of room into one that tapers to an edge rather than into a ribbon
+ * folded through itself.
+ */
+export function closureHeight(P, r, extra = 0) {
+  const { dth, zTop } = derived(P);
+  const ztap = P.Zt > 0 ? P.Zt : zTop;
+  const room = r * dth - 2 * P.c - extra;
+  if (room >= P.tb) return Infinity;
+  if (room <= P.te) return -Infinity;
+  if (P.tb <= P.te) return room >= P.te ? Infinity : -Infinity;
+  return (room - P.te) / (P.tb - P.te) * ztap;
+}
+
 export function derived(P) {
   const zTop = P.H + P.B;
   const zt = P.Zt > 0 ? P.Zt : zTop;
@@ -245,12 +298,22 @@ export function buildParts(P) {
     const notchA = r => thA(r) + f / r;
     const notchB = (r, z) => thB(r, z) - f / r;
     const common = { nu: 8, nr: 4, nz: 4 };
-    parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA: notchA, thB: notchB, zb: t => ramp(t), zt: () => zTop, nu: 40, nr: 6, nz: 4 }));
+    // Each piece stops at the height where the gap it needs has closed up,
+    // so a wedge that runs out of room tapers to an edge instead of folding
+    // over on itself. The allowance differs per piece: the outer region
+    // keeps a root step clear on both sides, each notch strip on one.
+    const until = (z, extra) => (t, r) => Math.min(z, closureHeight(P, r, extra));
+
+    parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA: notchA, thB: notchB,
+      zb: t => ramp(t), zt: until(zTop, 2 * f), nu: 40, nr: 6, nz: 4 }));
     if (f > 0 && hr > 0) {
-      parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA, thB: notchA, zb: t => ramp(t), zt: () => zRoot, ...common }));
-      parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA: notchB, thB, zb: t => ramp(t), zt: () => zRoot, ...common }));
+      parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA, thB: notchA,
+        zb: t => ramp(t), zt: until(zRoot, f), ...common }));
+      parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA: notchB, thB,
+        zb: t => ramp(t), zt: until(zRoot, f), ...common }));
     }
-    if (f > 0) parts.plastic.push(sectorSolid({ r0: rc, r1: rc + f, thA, thB, zb: t => ramp(t), zt: () => zStub, nu: 40, nr: 1, nz: 4 }));
+    if (f > 0) parts.plastic.push(sectorSolid({ r0: rc, r1: rc + f, thA, thB,
+      zb: t => ramp(t), zt: until(zStub, 0), nu: 40, nr: 1, nz: 4 }));
     if (cav > 0 && B > hr + 2 * skin + 1) {
       const cA = r => notchA(r) + skin / r;
       const cB = r => th + cav * dth - skin / r;

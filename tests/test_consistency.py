@@ -73,11 +73,12 @@ EXPLAINED = {
 # is what protects the rules in the meantime.
 # ---------------------------------------------------------------------------
 UNRESOLVED = {
-    ("many_teeth.json", "printed_body"): (+14.93, "cavity shape"),
+    ("many_teeth.json", "printed_body"): (+14.61, "cavity shape"),
     ("few_teeth.json", "printed_body"): (-15.49, "cavity shape"),
-    ("thick_blades.json", "printed_body"): (+20.89, "cavity shape, plus the viewer "
-        "stops drawing plastic where the blades overlap while the CAD script cuts it "
-        "away with a boolean"),
+    ("thick_blades.json", "printed_body"): (+3.92, "the two sides end the wedge in "
+        "slightly different places where the blades close up: the viewer trims each "
+        "piece at the height its own gap shuts, the CAD script subtracts the blade "
+        "solid"),
     ("thick_blades.json", "copper_body"): (+4.95, "the blades pass through each other "
         "inside r = 8.6 mm; the viewer adds each blade's volume separately while the "
         "CAD script unions them, so the viewer counts the overlap twice. The tool says "

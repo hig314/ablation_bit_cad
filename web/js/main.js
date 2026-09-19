@@ -176,15 +176,16 @@ function wireButtons() {
       for (const f of bundleFiles(parts, P)) zip.file(f.name, f.data);
       const blob = await zip.generateAsync({ type: 'blob' });
       saveBlob('ablation_bit_stl.zip', blob);
-      // Where the blades pass through each other there is no gap for the
-      // plastic, so the printed body pinches shut and its surface is left
-      // open along that seam. A slicer will reject it. Better to say that
-      // here than to let someone find out at the printer.
+      // The mesh is sound even where the blades crowd together, because each
+      // wedge is trimmed at the height its gap shuts. What is not sound is
+      // the design: the copper cannot be cut with blades that pass through
+      // each other, and the plastic left between them is a sliver.
       const rClose = closureRadius(P);
       status.textContent = 'Saved. Units are millimetres; tips at z = 0, z up.'
         + (rClose > 0
-            ? ' Warning: the blades overlap inside r = ' + rClose.toFixed(1)
-              + ' mm, so the printed body is not a closed solid there and will not slice.'
+            ? ' Warning: the blades pass through each other inside r = ' + rClose.toFixed(1)
+              + ' mm. The copper cannot be made as drawn, and the plastic there is a sliver'
+              + ' too thin to print.'
             : '');
     } catch (e) {
       status.textContent = 'Could not save: ' + (e && e.message ? e.message : e);

@@ -112,10 +112,19 @@ Three things, all invisible before:
    pitch shrinks towards the axis, so inside some radius the blades pass
    through each other and there is no gap left for plastic. The wedge between
    them inverted, which drew as sheets cutting through the tops of the wedges
-   and a spur of solid hanging off the ramp near the centre. Sectors are now
-   clamped to zero width instead, so nothing is drawn where nothing fits, and
-   the panel says which radius that starts at. Found at 11 teeth with 4.5 mm
-   blades; `tests/fixtures/thick_blades.json` keeps that case covered.
+   and a spur of solid hanging off the ramp near the centre.
+
+   Two things were needed. The angular span is clamped so a sector can never
+   run backwards, and each piece of a wedge is now trimmed at the height its
+   own gap shuts, so it tapers to an edge instead of collapsing into a folded
+   ribbon. A face is also only drawn around a corner that has both width and
+   height, which is what stopped the collapsed pieces leaving sheets behind.
+   The panel names the radius where the blades meet.
+
+   The printed body's mesh is closed at those parameters now, where it used
+   to have hundreds of open edges, and the viewer's volume there came within
+   3.9% of the CadQuery answer instead of 20.9%. Found at 11 teeth with
+   4.5 mm blades; `tests/fixtures/thick_blades.json` keeps the case covered.
 
 Two smaller things came out of the same work: every disk drawn from the axis
 was emitting a ring of degenerate triangles into the STL, now filtered; and
