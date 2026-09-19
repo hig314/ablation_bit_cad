@@ -73,9 +73,9 @@ EXPLAINED = {
 # is what protects the rules in the meantime.
 # ---------------------------------------------------------------------------
 UNRESOLVED = {
-    ("many_teeth.json", "printed_body"): (+14.61, "cavity shape"),
-    ("few_teeth.json", "printed_body"): (-15.49, "cavity shape"),
-    ("thick_blades.json", "printed_body"): (+3.92, "the two sides end the wedge in "
+    ("many_teeth.json", "printed_body"): (+14.70, "cavity shape"),
+    ("few_teeth.json", "printed_body"): (-15.64, "cavity shape"),
+    ("thick_blades.json", "printed_body"): (+4.17, "the two sides end the wedge in "
         "slightly different places where the blades close up: the viewer trims each "
         "piece at the height its own gap shuts, the CAD script subtracts the blade "
         "solid"),
@@ -86,13 +86,12 @@ UNRESOLVED = {
 }
 UNRESOLVED_CAVITIES = {"many_teeth.json": (0, 9)}
 
-# Extents that differ for a recorded reason. thick_blades is a design whose
-# blades pass through each other inside r = 8.6 mm; the viewer stops drawing
-# plastic there while the CAD script cuts it away with a boolean, and the two
-# leave the bottom of the ramp in slightly different places.
-UNRESOLVED_EXTENTS = {
-    ("thick_blades.json", "printed_body", "zmin"): 0.136,
-}
+# Extents that differ for a recorded reason. Empty: the two sides agree on
+# every extent of every fixture to within EXTENT_TOL_MM. thick_blades used to
+# need an entry here, because the viewer solved the bottom of its ramp by an
+# iteration that did not converge at those parameters and landed 0.136 mm
+# out. It bisects now and the two agree exactly.
+UNRESOLVED_EXTENTS = {}
 DRIFT_MM = 0.02
 DRIFT_PCT = 0.5
 

@@ -78,8 +78,10 @@ conda run -n ablation-cad python tests/test_consistency.py    # needs the CAD en
 
 `test_geometry.mjs` checks invariants the browser geometry must hold for any
 setting the panel can reach: no shell wound inside out, no degenerate
-triangles, no non-finite coordinates. It runs every fixture and both ends of
-every slider in about a second.
+triangles, no non-finite coordinates. It also measures how much of each
+plastic piece lies inside a copper blade or inside another piece, which is
+how three separate faults were caught that left every individual shell
+perfectly well formed. About twenty seconds.
 
 `test_consistency.py` compares volumes, extents and cavity counts against the
 CadQuery solids, allows differences that have a known permanent cause, and
@@ -122,9 +124,35 @@ Three things, all invisible before:
    The panel names the radius where the blades meet.
 
    The printed body's mesh is closed at those parameters now, where it used
-   to have hundreds of open edges, and the viewer's volume there came within
-   3.9% of the CadQuery answer instead of 20.9%. Found at 11 teeth with
-   4.5 mm blades; `tests/fixtures/thick_blades.json` keeps the case covered.
+   to have hundreds of open edges. Found at 11 teeth with 4.5 mm blades;
+   `tests/fixtures/thick_blades.json` keeps the case covered.
+
+5. **Three more faults hid behind that one**, all of which put solid where
+   another solid already was. They were found by measuring what share of one
+   piece lies inside another, which `tests/test_geometry.mjs` now does for
+   every fixture.
+
+   * **The wedge was split the wrong way.** It was built as a middle region
+     with a notch strip either side, the three tiling its width below the
+     blade's root step. That only holds while the wedge is wider than the
+     two notches taken out of it; narrower, and the three overlapped, by
+     14.5 cm³ at the reported parameters. The wedge is now two pieces
+     stacked instead, full width below the root step and narrowed above it,
+     which cannot overlap whatever the width does.
+   * **The bottom of the ramp was solved by an iteration that did not
+     converge.** Where a wedge sits on the helicoid depends on its angle,
+     and its angle depends back on the height; three passes of fixed-point
+     iteration settled that only while the loop gain stayed under one. The
+     gain is the ramp's climb per radian times how fast the blade thickens
+     with height, over the radius: about 0.03 at the defaults, but past one
+     inside r = 11.6 mm at 11 teeth with a 6 mm taper. The bottom came out
+     up to 0.9 mm off. It bisects now, which converges whatever the gain.
+   * **A blade's angular width was taken as `offset/r`.** A blade is a
+     straight tangential offset, not an arc, so it subtends
+     `asin(offset/r)`. At r = 9 with a 4.5 mm blade the difference is larger
+     than the whole fit clearance, so the blade genuinely reached into the
+     plastic. Angles are exact now, and the radius at which a wedge closes
+     up follows from the same formula instead of being approximated.
 
 Two smaller things came out of the same work: every disk drawn from the axis
 was emitting a ring of degenerate triangles into the STL, now filtered; and

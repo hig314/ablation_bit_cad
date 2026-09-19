@@ -75,19 +75,60 @@ export function sectorSolid({ r0, r1, thA, thB, zb, zt, nu = 24, nr = 4, nz = 1,
   const pt = (t, r, z) => [r * Math.cos(t), r * Math.sin(t), z];
 
   // A bounding height depends on theta, and on a helicoid theta depends back
-  // on the height. Two or three fixed-point passes settle that to far below
-  // the tessellation error.
+  // on the height, so each one has to be solved for.
+  //
+  // This used to be three passes of plain fixed-point iteration. That only
+  // converges while the loop gain stays under one, and the gain is
+  //
+  //     (H / dth) * d(off)/dz / r
+  //
+  // the ramp's climb per radian times how fast the blade thickens with
+  // height, over the radius. At the defaults it is about 0.03 and three
+  // passes are ample. On a tall, crowded bit with a tapered blade it goes
+  // past one: at 11 teeth, H = 9.5 and a 6 mm taper it exceeds one below
+  // r = 11.6 mm and is still 0.78 at r = 15. The iteration then walked away
+  // from the answer instead of towards it, and the bottom of the wedge came
+  // out up to 0.9 mm off, which put a lump of plastic inside the blade
+  // ahead of it.
+  //
+  // zf is non-increasing in z, so z - zf(z) is strictly increasing and the
+  // fixed point is unique. Bisection finds it whatever the gain.
   const solve = (u, r, zf) => {
-    let z = zf(th(u, r, 0), r);
-    for (let k = 0; k < 3; k++) z = zf(th(u, r, z), r);
-    return z;
+    const fz = z => zf(th(u, r, z), r);
+    const hi0 = fz(-1e4), lo0 = fz(1e4);
+    if (!Number.isFinite(lo0) || !Number.isFinite(hi0)) return fz(0);
+    if (hi0 - lo0 <= 1e-12) return lo0;          // zf does not depend on z
+    let lo = lo0, hi = hi0;
+    for (let k = 0; k < 40 && hi - lo > 1e-6; k++) {
+      const mid = (lo + hi) / 2;
+      if (mid - fz(mid) < 0) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
   };
-  const bot = (u, r) => solve(u, r, zb);
+
+  // bot and top are asked for the same corner many times over, by the cap
+  // loops, the walls and the emptiness test, so they are worth remembering.
+  const botCache = new Map(), topCache = new Map();
+  const bot = (u, r) => {
+    const k = u + ':' + r;
+    let v = botCache.get(k);
+    if (v === undefined) { v = solve(u, r, zb); botCache.set(k, v); }
+    return v;
+  };
   // The caller may hand us a top that has been trimmed below the bottom,
   // which is how "this piece has closed up by here" is expressed. Pinning
   // the top to the bottom turns that into no solid rather than one turned
   // inside out in z.
-  const top = (u, r) => { const b = bot(u, r), t = solve(u, r, zt); return t > b ? t : b; };
+  const top = (u, r) => {
+    const k = u + ':' + r;
+    let v = topCache.get(k);
+    if (v === undefined) {
+      const b = bot(u, r), t = solve(u, r, zt);
+      v = t > b ? t : b;
+      topCache.set(k, v);
+    }
+    return v;
+  };
 
   // Is there any solid at this corner? Emitting faces around a corner with
   // no angular width or no height is what produced free-floating sheets and
@@ -209,30 +250,52 @@ export function bounds(shells) {
  * Evaluated at the top of the blade, where it is thickest.
  */
 export function closureRadius(P) {
-  const { zStub, dth, off } = derived(P);
-  const r = (off(zStub) + 2 * P.c) / dth;
+  const { zStub } = derived(P);
+  // Smallest radius at which the wedge still has room, found by bisection
+  // on closureHeight, which is monotonic in r.
+  let lo = 1e-3, hi = P.R;
+  if (closureHeight(P, lo, 0) >= zStub) return 0;
+  if (closureHeight(P, hi, 0) < zStub) return P.R;
+  for (let i = 0; i < 60 && hi - lo > 1e-6; i++) {
+    const mid = (lo + hi) / 2;
+    if (closureHeight(P, mid, 0) < zStub) lo = mid; else hi = mid;
+  }
+  const r = (lo + hi) / 2;
   return r > P.rc ? r : 0;
+}
+
+export function offsetAngle(offset, r) {
+  if (!(r > 0)) return Math.PI / 2;
+  const s = offset / r;
+  return s >= 1 ? Math.PI / 2 : Math.asin(s);
 }
 
 /**
  * Height at which the gap a piece needs has closed up, at radius r.
  *
- * A blade is `off(z)` thick, growing with height, while the gap between two
- * blades at radius r is only r*dth wide. A piece that also needs `extra`
- * millimetres of room beyond the blade and its two clearances therefore
- * exists only below the height where
+ * The plastic between two blades runs from `e + c` past the rear face of
+ * one to `off(z) + c + e` short of the next, both measured as straight
+ * offsets. There is room for it while
  *
- *     off(z)  =  r*dth - 2c - extra
+ *     offsetAngle(off(z) + c + e, r) + offsetAngle(c + e, r)  <  dth
+ *
+ * which rearranges to off(z) < r*sin(dth - offsetAngle(c + e, r)) - c - e.
+ * `e` is the extra offset the piece keeps on each side: nothing for the
+ * part of the wedge below the blade's root step, one step width above it.
  *
  * Returns +Infinity when the piece never closes and -Infinity when it never
- * opens. Callers use it to trim a piece's top, which turns a wedge that runs
- * out of room into one that tapers to an edge rather than into a ribbon
- * folded through itself.
+ * opens. Callers use it to trim a piece's top, which turns a wedge that
+ * runs out of room into one that tapers to an edge rather than into a
+ * ribbon folded through itself.
  */
-export function closureHeight(P, r, extra = 0) {
+export function closureHeight(P, r, e = 0) {
   const { dth, zTop } = derived(P);
   const ztap = P.Zt > 0 ? P.Zt : zTop;
-  const room = r * dth - 2 * P.c - extra;
+  const near = P.c + e;
+  if (near >= r) return -Infinity;
+  const spare = dth - offsetAngle(near, r);
+  if (spare <= 0) return -Infinity;
+  const room = r * Math.sin(spare) - near;
   if (room >= P.tb) return Infinity;
   if (room <= P.te) return -Infinity;
   if (P.tb <= P.te) return room >= P.te ? Infinity : -Infinity;
@@ -292,28 +355,42 @@ export function buildParts(P) {
     if (f > 0) parts.blades.push(prismSolid(rc, rc + f, th, zStub, zRoot, () => -f, z => off(z) + f));
 
     // printed wedge behind blade k; its pocket walls follow the blade faces plus clearance
-    const thA = r => th + c / r;
-    const thB = (r, z) => thNext - off(z) / r - c / r;
+    // Angles measured the way the blades are actually built: a straight
+    // tangential offset from the radial plane, so the angle is asin(d/r).
+    const thA = r => th + offsetAngle(c, r);
+    const thB = (r, z) => thNext - offsetAngle(off(z) + c, r);
     const ramp = t => Math.max(0, H * (t - th) / dth);
-    const notchA = r => thA(r) + f / r;
-    const notchB = (r, z) => thB(r, z) - f / r;
-    const common = { nu: 8, nr: 4, nz: 4 };
+    const notchA = r => th + offsetAngle(c + f, r);
+    const notchB = (r, z) => thNext - offsetAngle(off(z) + c + f, r);
     // Each piece stops at the height where the gap it needs has closed up,
     // so a wedge that runs out of room tapers to an edge instead of folding
-    // over on itself. The allowance differs per piece: the outer region
-    // keeps a root step clear on both sides, each notch strip on one.
-    const until = (z, extra) => (t, r) => Math.min(z, closureHeight(P, r, extra));
+    // over on itself.
+    const until = (z, e) => (t, r) => Math.min(z, closureHeight(P, r, e));
 
-    parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA: notchA, thB: notchB,
-      zb: t => ramp(t), zt: until(zTop, 2 * f), nu: 40, nr: 6, nz: 4 }));
-    if (f > 0 && hr > 0) {
-      parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA, thB: notchA,
-        zb: t => ramp(t), zt: until(zRoot, f), ...common }));
-      parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA: notchB, thB,
-        zb: t => ramp(t), zt: until(zRoot, f), ...common }));
+    // The wedge is two pieces stacked, not three side by side.
+    //
+    // It used to be built as a middle region with a notch strip either side
+    // of it, the three tiling the wedge's full width below the root step.
+    // That tiling only holds while the wedge is wider than the two notches
+    // taken out of it. Once it is narrower the three pieces overlap one
+    // another: at 11 teeth with 4.5 mm blades the two strips shared 7.7 mm3
+    // and the middle region another 6.8 mm3 with the front strip. Stacked,
+    // the pieces are separated by height and cannot overlap whatever the
+    // width does.
+    //
+    // Below the root step the wedge is full width; above it, it is narrowed
+    // by one step on each side. Their union is exactly what the three
+    // pieces used to add up to, so nothing changes on a design that fits.
+    const hasStep = f > 0 && hr > 0;
+
+    parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA, thB,
+      zb: t => ramp(t), zt: until(hasStep ? zRoot : zTop, 0), nu: 40, nr: 16, nz: 8 }));
+    if (hasStep) {
+      parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA: notchA, thB: notchB,
+        zb: t => Math.max(zRoot, ramp(t)), zt: until(zTop, f), nu: 40, nr: 12, nz: 4 }));
     }
     if (f > 0) parts.plastic.push(sectorSolid({ r0: rc, r1: rc + f, thA, thB,
-      zb: t => ramp(t), zt: until(zStub, 0), nu: 40, nr: 1, nz: 4 }));
+      zb: t => ramp(t), zt: until(zStub, 0), nu: 40, nr: 4, nz: 4 }));
     if (cav > 0 && B > hr + 2 * skin + 1) {
       const cA = r => notchA(r) + skin / r;
       const cB = r => th + cav * dth - skin / r;
