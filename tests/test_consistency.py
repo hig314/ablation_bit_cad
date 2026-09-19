@@ -73,12 +73,20 @@ EXPLAINED = {
 # is what protects the rules in the meantime.
 # ---------------------------------------------------------------------------
 UNRESOLVED = {
-    ("many_teeth.json", "printed_body"): (+14.29, "cavity shape"),
-    ("few_teeth.json", "printed_body"): (-14.77, "cavity shape"),
-    ("thick_blades.json", "printed_body"): (+3.67, "the two sides end the wedge in "
-        "slightly different places where the blades close up: the viewer trims each "
-        "piece at the height its own gap shuts, the CAD script subtracts the blade "
-        "solid"),
+    # The ramp itself now differs. The viewer climbs the full riser height at
+    # every radius, over whatever arc the two blades leave it, which is the
+    # design as described: the tooth's outer triangle carried inwards at
+    # constant height, steepening as the arc shortens. make_cad.py still cuts
+    # a uniform-pitch helicoid with twistExtrude, which climbs H per pitch of
+    # ANGLE and so stops short wherever a blade eats into the pitch.
+    #
+    # THE STEP FILES NO LONGER MATCH THE TOOL. Porting needs a variable-pitch
+    # surface in place of the twist extrude, which is a real piece of work,
+    # not a parameter change. Until then these are the measured gaps.
+    ("default.json", "printed_body"): (-4.31, "ramp: viewer climbs the full height, CAD script does not"),
+    ("many_teeth.json", "printed_body"): (+13.39, "ramp, plus cavity shape"),
+    ("few_teeth.json", "printed_body"): (-19.04, "ramp, plus cavity shape"),
+    ("thick_blades.json", "printed_body"): (-4.68, "ramp, plus how each side ends the wedge where the blades close up"),
     ("thick_blades.json", "copper_body"): (+4.95, "the blades pass through each other "
         "inside r = 8.6 mm; the viewer adds each blade's volume separately while the "
         "CAD script unions them, so the viewer counts the overlap twice. The tool says "
@@ -91,7 +99,11 @@ UNRESOLVED_CAVITIES = {"many_teeth.json": (0, 9)}
 # need an entry here, because the viewer solved the bottom of its ramp by an
 # iteration that did not converge at those parameters and landed 0.136 mm
 # out. It bisects now and the two agree exactly.
-UNRESOLVED_EXTENTS = {}
+UNRESOLVED_EXTENTS = {
+    # Same cause: the viewer's ramp starts at the blade's rear face, the CAD
+    # script's a little later, so the lowest plastic sits 0.136 mm apart.
+    ("thick_blades.json", "printed_body", "zmin"): 0.136,
+}
 DRIFT_MM = 0.02
 DRIFT_PCT = 0.5
 

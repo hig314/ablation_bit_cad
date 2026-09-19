@@ -160,6 +160,38 @@ was emitting a ring of degenerate triangles into the STL, now filtered; and
 against the number of cavities actually cut, so it reported a failure on any
 design that legitimately skips one.
 
+### The ramp, and a divergence it opened
+
+The ramp climbs the full riser height at every radius. It used to climb H per
+pitch of *angle*, so wherever a blade ate into the pitch, as it does towards
+the middle, the ramp ran out of room and stopped short: about 1 mm shy of H at
+r = 6.5 mm against 0.3 mm at the rim on the default bit. It now climbs H over
+whatever arc the two blades leave it, which is the tooth's outer triangle
+carried inwards at constant height, steepening from 14 degrees at the rim to
+48 degrees inboard.
+
+**`make_cad.py` has not been ported, so the STEP files no longer match the
+tool.** It builds the ramp with `twistExtrude`, which is a uniform-pitch
+helicoid by construction. A ramp whose pitch varies with radius needs a
+variable-pitch surface in its place. The consistency test records the gap on
+every fixture rather than letting it pass quietly.
+
+One thing to weigh before that port. The bit descends H for every pitch of
+rotation, so in the bit's own frame the ice between blades rises at exactly H
+per pitch of angle, at every radius; that ratio is set by the screw, not by
+the tooth. A ramp that climbs H over less than a full pitch is steeper than
+the surface it runs on, so it meets the ice along its leading edge and lifts
+away towards the trailing edge, and descending would ask the plastic to melt
+ice it is pressing into.
+
+If the aim is a ramp that reaches its full height without that, the lever is
+the riser rather than the ramp: the shortfall is entirely the blade's front
+face leaning back over the ramp as it thickens from the edge land to its full
+width. Holding the riser at its edge thickness up to the top of the ramp, and
+tapering above, would take the shortfall from 0.99 to 0.26 mm at r = 6.5 and
+from 0.28 to 0.07 mm at the rim, with the ramp still matching the surface it
+cuts.
+
 ### Open design question
 
 The viewer and the CAD script build the wedge cavity differently, and the

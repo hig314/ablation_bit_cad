@@ -302,6 +302,23 @@ export function closureHeight(P, r, e = 0) {
   return (room - P.te) / (P.tb - P.te) * ztap;
 }
 
+/**
+ * Angular room the ramp has to climb in, at radius r.
+ *
+ * The ramp runs from the rear face of one blade to the front face of the
+ * next, measured at the height the ramp reaches, so it is the pitch less
+ * what the two blades take out of it. Both shares grow as the radius falls,
+ * because a blade is a fixed thickness in millimetres while the pitch is
+ * not: that is what makes the ramp steeper towards the middle.
+ */
+export function rampSpan(P, r) {
+  const { dth, off } = derived(P);
+  const lead = offsetAngle(P.c, r);                 // clear of the blade behind
+  const trail = offsetAngle(off(P.H) + P.c, r);     // clear of the blade ahead
+  const span = dth - lead - trail;
+  return span > 0 ? span : 0;
+}
+
 export function derived(P) {
   const zTop = P.H + P.B;
   const zt = P.Zt > 0 ? P.Zt : zTop;
@@ -359,7 +376,21 @@ export function buildParts(P) {
     // tangential offset from the radial plane, so the angle is asin(d/r).
     const thA = r => th + offsetAngle(c, r);
     const thB = (r, z) => thNext - offsetAngle(off(z) + c, r);
-    const ramp = t => Math.max(0, H * (t - th) / dth);
+    // The ramp climbs the full riser height at every radius.
+    //
+    // It used to rise H per pitch of ANGLE, so where a blade ate more of the
+    // pitch, as it does towards the middle, the ramp ran out of room and
+    // stopped short: about 1 mm shy of H at r = 6.5 against 0.3 mm at the
+    // rim on the default bit. The tooth's outer profile is a triangle of
+    // height H, and carrying it inwards at constant height is what this
+    // does: the same climb over a shorter arc, so the ramp steepens towards
+    // the centre and still reaches the top.
+    const ramp = (t, r) => {
+      const s = rampSpan(P, r);
+      if (!(s > 0)) return 0;
+      const lead = th + offsetAngle(c, r);
+      return Math.min(H, Math.max(0, H * (t - lead) / s));
+    };
     const notchA = r => th + offsetAngle(c + f, r);
     const notchB = (r, z) => thNext - offsetAngle(off(z) + c + f, r);
     // Each piece stops at the height where the gap it needs has closed up,
@@ -390,10 +421,10 @@ export function buildParts(P) {
     const zStepTop = zRoot - c;
 
     parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA, thB,
-      zb: t => ramp(t), zt: until(hasStep ? zStepTop : zTop, 0), nu: 40, nr: 16, nz: 8 }));
+      zb: (t, r) => ramp(t, r), zt: until(hasStep ? zStepTop : zTop, 0), nu: 40, nr: 16, nz: 8 }));
     if (hasStep) {
       parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA: notchA, thB: notchB,
-        zb: t => Math.max(zStepTop, ramp(t)), zt: until(zTop, f), nu: 40, nr: 12, nz: 4 }));
+        zb: (t, r) => Math.max(zStepTop, ramp(t, r)), zt: until(zTop, f), nu: 40, nr: 12, nz: 4 }));
     }
     // Inside the wedge proper, beside the copper stub, the same two-piece
     // split applies again. Below the stub the blade is its plain thickness;
@@ -410,10 +441,10 @@ export function buildParts(P) {
       // a clearance below the stub, which is where the CAD script bores.
       const zInnerTop = zStub - c;
       parts.plastic.push(sectorSolid({ r0: rc, r1: rc + f, thA, thB,
-        zb: t => ramp(t), zt: until(zInnerTop, 0), nu: 40, nr: 4, nz: 4 }));
+        zb: (t, r) => ramp(t, r), zt: until(zInnerTop, 0), nu: 40, nr: 4, nz: 4 }));
       if (zRoot > zInnerTop) {
         parts.plastic.push(sectorSolid({ r0: rc + c, r1: rc + f, thA: notchA, thB: notchB,
-          zb: t => Math.max(zInnerTop, ramp(t)), zt: until(zRoot, f), nu: 24, nr: 4, nz: 4 }));
+          zb: (t, r) => Math.max(zInnerTop, ramp(t, r)), zt: until(zRoot, f), nu: 24, nr: 4, nz: 4 }));
       }
     }
     if (cav > 0 && B > hr + 2 * skin + 1) {
