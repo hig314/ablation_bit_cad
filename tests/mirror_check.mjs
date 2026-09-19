@@ -17,7 +17,7 @@
 // blade grown by the fit clearance, less the bore above the collar. Then
 // that is compared with what the viewer actually draws.
 import { readFileSync } from 'node:fs';
-import { buildParts, derived } from '../web/js/geometry.js';
+import { buildParts, derived, rampSpan, offsetAngle } from '../web/js/geometry.js';
 import { clamp, defaults } from '../web/js/params.js';
 
 const P = clamp({ ...defaults(), ...JSON.parse(readFileSync(process.argv[2], 'utf8')) });
@@ -41,7 +41,11 @@ function shouldBePlastic(x, y, z) {
   if (r < rc || r > Rb) return false;
   let t = Math.atan2(y, x); if (t < 0) t += 2 * Math.PI;
   const k = Math.floor(t / dth);
-  const ramp = H * (t - k * dth) / dth;
+  // the same ramp the tool builds: the full climb over whatever arc the
+  // blades leave, so it steepens towards the middle
+  const span = rampSpan(P, r);
+  const lead = k * dth + offsetAngle(c, r);
+  const ramp = span > 0 ? Math.min(H, Math.max(0, H * (t - lead) / span)) : 0;
   if (z < ramp || z > zTop) return false;
   if (r < rc + c && z > zStub - c) return false;       // the bore above the collar
   return !inPocket(x, y, z);

@@ -73,20 +73,20 @@ EXPLAINED = {
 # is what protects the rules in the meantime.
 # ---------------------------------------------------------------------------
 UNRESOLVED = {
-    # The ramp itself now differs. The viewer climbs the full riser height at
-    # every radius, over whatever arc the two blades leave it, which is the
-    # design as described: the tooth's outer triangle carried inwards at
-    # constant height, steepening as the arc shortens. make_cad.py still cuts
-    # a uniform-pitch helicoid with twistExtrude, which climbs H per pitch of
-    # ANGLE and so stops short wherever a blade eats into the pitch.
-    #
-    # THE STEP FILES NO LONGER MATCH THE TOOL. Porting needs a variable-pitch
-    # surface in place of the twist extrude, which is a real piece of work,
-    # not a parameter change. Until then these are the measured gaps.
-    ("default.json", "printed_body"): (-4.31, "ramp: viewer climbs the full height, CAD script does not"),
-    ("many_teeth.json", "printed_body"): (+13.39, "ramp, plus cavity shape"),
-    ("few_teeth.json", "printed_body"): (-19.04, "ramp, plus cavity shape"),
-    ("thick_blades.json", "printed_body"): (-4.68, "ramp, plus how each side ends the wedge where the blades close up"),
+    # The ramp is ported, so the two sides now build the same surface and the
+    # printed body agrees to about a percent on any design that fits. What is
+    # left is the cavity, and designs that do not fit.
+    ("default.json", "printed_body"): (-1.09, "cavity shape, and how each side "
+        "handles the corner where a blade's root step ends"),
+    ("few_teeth.json", "printed_body"): (-0.98, "same"),
+    ("many_teeth.json", "printed_body"): (+25.87, "the CAD script cuts nine cavities "
+        "that the viewer correctly refuses to make: see the gate-radius disagreement "
+        "below. They vent to the outside instead of sealing, which --check now catches"),
+    ("thick_blades.json", "printed_body"): (+32.86, "this design is not buildable. Its "
+        "blades pass through each other inside r = 8.6 mm, and the CAD script's printed "
+        "body comes apart into the main piece plus 8 cm3 of loose wedges, which it "
+        "reports and drops. The comparison is not meaningful, only the fact that both "
+        "sides agree the design fails"),
     ("thick_blades.json", "copper_body"): (+4.95, "the blades pass through each other "
         "inside r = 8.6 mm; the viewer adds each blade's volume separately while the "
         "CAD script unions them, so the viewer counts the overlap twice. The tool says "
@@ -99,11 +99,7 @@ UNRESOLVED_CAVITIES = {"many_teeth.json": (0, 9)}
 # need an entry here, because the viewer solved the bottom of its ramp by an
 # iteration that did not converge at those parameters and landed 0.136 mm
 # out. It bisects now and the two agree exactly.
-UNRESOLVED_EXTENTS = {
-    # Same cause: the viewer's ramp starts at the blade's rear face, the CAD
-    # script's a little later, so the lowest plastic sits 0.136 mm apart.
-    ("thick_blades.json", "printed_body", "zmin"): 0.136,
-}
+UNRESOLVED_EXTENTS = {}
 DRIFT_MM = 0.02
 DRIFT_PCT = 0.5
 

@@ -19,6 +19,8 @@ radial plane at angle k*360/N measured from +x. The bit turns clockwise seen fro
 """
 import json, math, sys, os
 import cadquery as cq
+from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
+from OCP.gp import gp_Vec
 
 DEFAULTS = dict(N=6, R=27, rc=5, H=6, tb=2.5, te=0.3, Zt=0, T=5, hub=8, f=1.5, hr=3, tool=3,
                 rs=3, hh=3, hc=5, c=0.2, B=12, skin=1.5, ring=2.5, cav=0.6, D=3.5)
@@ -30,6 +32,133 @@ def load_params(path):
             P.update({k: v for k, v in json.load(fh).items() if k in DEFAULTS})
     P["N"] = int(round(P["N"]))
     return P
+
+# Tolerance for the booleans that cut the ramp. The spline ramp surface
+# meets the slot's planes and cylinders at a shallow angle, and at the
+# default tolerance the cut silently does nothing.
+RAMP_FUZZ = 1e-5
+
+
+def offset_angle(offset, r):
+    """
+    Angle subtended at radius r by a straight tangential offset.
+
+    A blade is not an arc: it is offset in a straight line from the radial
+    plane, so a point sits exactly `offset` from that plane when
+    r*sin(angle) = offset. Mirrors offsetAngle() in web/js/geometry.js.
+    """
+    if r <= 0:
+        return math.pi / 2
+    s = offset / r
+    return math.pi / 2 if s >= 1 else math.asin(s)
+
+
+def blade_offset(P, z):
+    """Blade thickness at height z: the edge land, thickening to tb."""
+    zTop = P["H"] + P["B"]
+    ztap = P["Zt"] if P["Zt"] > 0 else zTop
+    return P["te"] + (P["tb"] - P["te"]) * min(1.0, max(0.0, z / ztap))
+
+
+def ramp_span(P, r):
+    """
+    Angular room the ramp has to climb in, at radius r. Mirrors rampSpan()
+    in web/js/geometry.js: the pitch less the angle each blade takes at the
+    height the ramp reaches. Both shares grow as the radius falls, because a
+    blade is a fixed thickness in millimetres while the pitch is not, and
+    that is what makes the ramp steeper towards the middle.
+
+    Zero once the two blades have met, inside which there is no ramp.
+    """
+    dth = 2 * math.pi / P["N"]
+    span = dth - offset_angle(P["c"], r) - offset_angle(blade_offset(P, P["H"]) + P["c"], r)
+    return span if span > 0 else 0.0
+
+
+# A ramp narrower than this is not worth building: the surface would be a
+# vertical sliver, and a boolean against one of those tears the wedge into
+# dozens of fragments instead of cutting it. The flat roof covers those
+# radii instead, which is the right answer anyway, since the blades have
+# effectively met and no plastic belongs between them.
+RAMP_MIN_SPAN = 0.02          # radians
+
+
+def ramp_open_radius(P, rc, Rb):
+    """Smallest radius that still has room for a ramp, or None if none does."""
+    if ramp_span(P, Rb) <= RAMP_MIN_SPAN:
+        return None
+    if ramp_span(P, rc) > RAMP_MIN_SPAN:
+        return rc
+    lo, hi = rc, Rb
+    for _ in range(50):
+        mid = (lo + hi) / 2
+        if ramp_span(P, mid) <= RAMP_MIN_SPAN:
+            lo = mid
+        else:
+            hi = mid
+    return hi
+
+
+def ramp_cutters(P, th, lift=0.0, nr=20, nu=28):
+    """
+    Everything below the ramp inside this wedge's slot, as solids to cut
+    away. `lift` raises the surface, which is how the cavity floor is kept
+    one skin above the ramp.
+
+    The ramp climbs the full riser height at every radius, over whatever arc
+    the blades leave it, so its pitch varies with radius. twistExtrude, which
+    this replaced, can only make a uniform-pitch helicoid; the surface is
+    built directly instead, as a spline through a grid of points on it, then
+    swept downwards into a solid.
+
+    Two pieces: the climbing ramp, and a flat roof at H carrying on from the
+    top of it to the edge of the slot, where the next blade stands and no
+    plastic reaches below H.
+
+    Returned as a list and cut one at a time. Fusing them first gives a
+    compound rather than a solid, and cutting with a compound quietly does
+    nothing at all: the wedge comes back whole and the ramp never appears.
+
+    Cut them with RAMP_FUZZ, not the default tolerance. A spline face meeting
+    the slot's planes and cylinders needs the boolean given some slack, and
+    without it the cut reports success and hands back the uncut wedge, which
+    is the same silent failure by another route.
+    """
+    rc, Rb, H = P["rc"], P["R"] - P["ring"], P["H"]
+    dth = 2 * math.pi / P["N"]
+    drop = gp_Vec(0, 0, -(H + lift + 10))
+
+    def prism(grid):
+        face = cq.Face.makeSplineApprox(grid, tol=1e-3)
+        solid = cq.Shape.cast(BRepPrimAPI_MakePrism(face.wrapped, drop).Shape())
+        return cq.Workplane("XY").newObject([solid])
+
+    # The roof spans the whole slot at radii where the ramp has closed up.
+    roof_grid = []
+    for j in range(nr + 1):
+        r = rc + (Rb - rc) * j / nr
+        start = offset_angle(P["c"], r) + ramp_span(P, r)
+        rest = max(1e-4, dth - start)
+        roof_grid.append([
+            cq.Vector(r * math.cos(th + start + rest * i / 4),
+                      r * math.sin(th + start + rest * i / 4), H + lift)
+            for i in range(5)])
+    cutters = [prism(roof_grid)]
+
+    r_open = ramp_open_radius(P, rc, Rb)
+    if r_open is not None:
+        ramp_grid = []
+        for j in range(nr + 1):
+            r = r_open + (Rb - r_open) * j / nr
+            lead, span = offset_angle(P["c"], r), ramp_span(P, r)
+            ramp_grid.append([
+                cq.Vector(r * math.cos(th + lead + span * i / nu),
+                          r * math.sin(th + lead + span * i / nu),
+                          H * i / nu + lift)
+                for i in range(nu + 1)])
+        cutters.append(prism(ramp_grid))
+    return cutters
+
 
 def sector(r0, r1, a0, a1, z0=0.0):
     """closed annular-sector wire on a plane at height z0"""
@@ -121,20 +250,21 @@ def printed_body(P, report=None):
     wedges = []
     for k in range(N):
         th = k * dth
-        twisted = sector(rc, Rb, th - dth, th).twistExtrude(H, math.degrees(dth))            # region above the helicoid
-        lower = twisted.intersect(sector(rc, Rb, th, th + dth).extrude(H))
-        upper = sector(rc, Rb, th, th + dth, H).extrude(zTop - H)
-        wedge = lower.union(upper)
+        # The whole slot, with everything below the ramp taken back out.
+        wedge = sector(rc, Rb, th, th + dth).extrude(zTop)
+        for cutter in ramp_cutters(P, th):
+            wedge = wedge.cut(cutter, clean=False, tol=RAMP_FUZZ)
         if cav > 0 and B > hr + 2 * skin + 1:
             rm = (rc + Rb) / 2
             cA = th + (c + f + skin) / rm; cB = th + cav * dth - skin / rm
             if cB > cA + 0.02:
                 if report is not None:
                     report["cavities"] = report.get("cavities", 0) + 1
-                cav_tw = sector(rc + f + skin, Rb - skin, cA - dth, cA, skin).twistExtrude(H, math.degrees(dth))
-                cav_lo = cav_tw.intersect(sector(rc + f + skin, Rb - skin, cA, cB, skin).extrude(H))
-                cav_hi = sector(rc + f + skin, Rb - skin, cA, cB, H + skin).extrude(zRoot - skin - H - skin)
-                wedge = wedge.cut(cav_lo.union(cav_hi))
+                # The cavity floor rides one skin above the same ramp.
+                pocket = sector(rc + f + skin, Rb - skin, cA, cB).extrude(zRoot - skin)
+                for cutter in ramp_cutters(P, th, lift=skin):
+                    pocket = pocket.cut(cutter, clean=False, tol=RAMP_FUZZ)
+                wedge = wedge.cut(pocket, clean=False)
         wedges.append(wedge.val())
 
     # Fuse every wedge in one boolean rather than N-1 sequential unions.

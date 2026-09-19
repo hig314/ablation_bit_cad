@@ -451,7 +451,7 @@ export function buildParts(P) {
       const cA = r => notchA(r) + skin / r;
       const cB = r => th + cav * dth - skin / r;
       if (cB(rc + f + skin) > cA(rc + f + skin) + 0.02) {
-        parts.cavities.push(sectorSolid({ r0: rc + f + skin, r1: Rb - skin, thA: cA, thB: cB, zb: t => ramp(t) + skin, zt: () => zRoot - skin, nu: 24, nr: 4 }));
+        parts.cavities.push(sectorSolid({ r0: rc + f + skin, r1: Rb - skin, thA: cA, thB: cB, zb: (t, r) => ramp(t, r) + skin, zt: () => zRoot - skin, nu: 24, nr: 4 }));
       }
     }
   }
