@@ -161,6 +161,22 @@ was emitting a ring of degenerate triangles into the STL, now filtered; and
 against the number of cavities actually cut, so it reported a failure on any
 design that legitimately skips one.
 
+### The flat centre
+
+The pin head spans the whole flat centre, out to where the printed fins
+begin, so the hole it melts is wide enough for everything that has to follow
+it down. It used to stop one root-step width short, at `rc` rather than
+`rc + f`, which left a 1.5 mm ring of printed plastic sitting on a ramp of
+nearly 60 degrees with no copper anywhere below it to clear a path. The
+collar now matches the head, the blade proper starts where the head ends, and
+the band of plastic that used to ride that ramp is gone. Only the blade's
+inner root step still reaches further in, and it sits above the collar.
+
+`derived(P).rFlat` and `flat_radius(P)` are the two sides of that radius.
+After it, the printed body accounts for every cubic millimetre the copper
+leaves: `mirror_check` reports nothing missing at the defaults, against
+7 mm3 per wedge before.
+
 ### The ramp
 
 The ramp climbs the full riser height at every radius. It used to climb H per

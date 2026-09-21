@@ -326,6 +326,12 @@ export function derived(P) {
   return {
     dth: 2 * Math.PI / P.N,
     Rb: P.R - P.ring,
+    // Radius of the flat copper centre: the pin head, and with it the
+    // inner edge of the printed fins. It reaches past the blade's inner
+    // root step, so everything inside it is copper below and collar above,
+    // and every piece of plastic in there descends into the hole the head
+    // melts rather than sitting on ice nothing has cleared.
+    rFlat: P.rc + P.f,
     zTop,
     zRoot: zTop - P.hr,
     zStub: Math.max(P.hh + P.hc, P.H + 1),
@@ -344,7 +350,7 @@ export function derived(P) {
  */
 export function buildParts(P) {
   const { N, R, rc, H, tb, te, Zt, T, hub, f, hr, rs, hh, hc, c, B, skin, ring, cav } = P;
-  const { dth, Rb, zTop, zRoot, zStub, off } = derived(P);
+  const { dth, Rb, rFlat, zTop, zRoot, zStub, off } = derived(P);
   const full = { thA: () => 0, thB: () => 2 * Math.PI };
   const parts = { centre: [], blades: [], disk: [], hubg: [], screw: [], collar: [], plastic: [], ringg: [], cavities: [] };
 
@@ -353,12 +359,19 @@ export function buildParts(P) {
   parts.disk.push(sectorSolid({ r0: 0, r1: Rb, ...full, zb: () => zTop, zt: () => zTop + T, nu: 96, nr: 1 }));
   parts.hubg.push(sectorSolid({ r0: 0, r1: hub, ...full, zb: () => zTop + T, zt: () => zTop + T + 10, nu: 48, nr: 1 }));
 
-  // centre screw: the head is the flat melting base, the shank threads into the stub
-  parts.screw.push(sectorSolid({ r0: 0, r1: rc, ...full, zb: () => 0, zt: () => hh, nu: 64, nr: 1 }));
+  // Centre screw: the head is the flat melting base, the shank threads into
+  // the stub. The head spans the whole flat centre, out to where the printed
+  // fins begin, so the hole it melts is wide enough for every piece of
+  // plastic that has to follow it down. It used to stop at rc, one root-step
+  // width short, which left a 1.5 mm ring of printed plastic riding a ramp
+  // of nearly 60 degrees with nothing melting a path for it.
+  parts.screw.push(sectorSolid({ r0: 0, r1: rFlat, ...full, zb: () => 0, zt: () => hh, nu: 64, nr: 1 }));
   parts.screw.push(sectorSolid({ r0: 0, r1: rs, ...full, zb: () => hh, zt: () => zTop - 1, nu: 32, nr: 1 }));
 
   // printed collar between the screw head and the stub, bored for the shank
-  parts.collar.push(sectorSolid({ r0: rs + c, r1: rc, ...full, zb: () => hh, zt: () => zStub, nu: 64, nr: 1 }));
+  // The collar fills the flat centre above the head, so it rides in the
+  // head's hole and carries the inner ends of the printed ramps.
+  parts.collar.push(sectorSolid({ r0: rs + c, r1: rFlat, ...full, zb: () => hh, zt: () => zStub, nu: 64, nr: 1 }));
   if (ring > 0) parts.ringg.push(sectorSolid({ r0: Rb, r1: R, ...full, zb: () => H, zt: () => zTop, nu: 96, nr: 1 }));
 
   for (let k = 0; k < N; k++) {
@@ -367,9 +380,12 @@ export function buildParts(P) {
     // blade_solid() in cad/make_cad.py. Drawing them all the way to Rb made
     // the viewer show a 0.2 mm longer blade than the mill would cut.
     const rBlade = Rb - c;
-    parts.blades.push(prismSolid(rc, rBlade, th, 0, zRoot, () => 0, off));
-    if (hr > 0 && f > 0) parts.blades.push(prismSolid(rc, rBlade, th, zRoot, zTop, () => -f, z => off(z) + f));
-    if (f > 0) parts.blades.push(prismSolid(rc, rc + f, th, zStub, zRoot, () => -f, z => off(z) + f));
+    // The blade proper begins where the flat centre ends. Its inner root
+    // step still reaches in to the stub, but only up where the collar has
+    // already finished, so it never shares space with the head.
+    parts.blades.push(prismSolid(rFlat, rBlade, th, 0, zRoot, () => 0, off));
+    if (hr > 0 && f > 0) parts.blades.push(prismSolid(rFlat, rBlade, th, zRoot, zTop, () => -f, z => off(z) + f));
+    if (f > 0) parts.blades.push(prismSolid(rc, rFlat, th, zStub, zRoot, () => -f, z => off(z) + f));
 
     // printed wedge behind blade k; its pocket walls follow the blade faces plus clearance
     // Angles measured the way the blades are actually built: a straight
@@ -420,32 +436,20 @@ export function buildParts(P) {
     // full-width plastic lying inside the pocket.
     const zStepTop = zRoot - c;
 
-    parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA, thB,
+    parts.plastic.push(sectorSolid({ r0: rFlat, r1: Rb, thA, thB,
       zb: (t, r) => ramp(t, r), zt: until(hasStep ? zStepTop : zTop, 0), nu: 40, nr: 16, nz: 8 }));
     if (hasStep) {
-      parts.plastic.push(sectorSolid({ r0: rc + f, r1: Rb, thA: notchA, thB: notchB,
+      parts.plastic.push(sectorSolid({ r0: rFlat, r1: Rb, thA: notchA, thB: notchB,
         zb: (t, r) => Math.max(zStepTop, ramp(t, r)), zt: until(zTop, f), nu: 40, nr: 12, nz: 4 }));
     }
-    // Inside the wedge proper, beside the copper stub, the same two-piece
-    // split applies again. Below the stub the blade is its plain thickness;
-    // from the stub up to the disk it carries its inner root step, so the
-    // plastic there is notched back by one step just as the upper wedge is.
-    //
-    // That upper part was missing entirely: the band simply stopped at the
-    // stub, which left the trailing face with a step along its inner edge
-    // and took about 13 mm3 out of each wedge at the defaults. Its inner
-    // radius is the clearance bore above the collar, which is what the CAD
-    // script cuts there.
-    if (f > 0) {
-      // Same again beside the stub: the inner root step's pocket also starts
-      // a clearance below the stub, which is where the CAD script bores.
-      const zInnerTop = zStub - c;
-      parts.plastic.push(sectorSolid({ r0: rc, r1: rc + f, thA, thB,
-        zb: (t, r) => ramp(t, r), zt: until(zInnerTop, 0), nu: 40, nr: 4, nz: 4 }));
-      if (zRoot > zInnerTop) {
-        parts.plastic.push(sectorSolid({ r0: rc + c, r1: rc + f, thA: notchA, thB: notchB,
-          zb: (t, r) => Math.max(zInnerTop, ramp(t, r)), zt: until(zRoot, f), nu: 24, nr: 4, nz: 4 }));
-      }
+    // Beside the copper stub, between the collar and the disk, the blade
+    // carries its inner root step, so the plastic there is notched back by
+    // one step. Below this the flat centre is solid copper and collar, so
+    // there is nothing to build: the band that used to ride the ramp in
+    // here is gone.
+    if (f > 0 && zRoot > zStub) {
+      parts.plastic.push(sectorSolid({ r0: rc + c, r1: rFlat, thA: notchA, thB: notchB,
+        zb: () => zStub, zt: until(zRoot, f), nu: 24, nr: 4, nz: 4 }));
     }
     if (cav > 0 && B > hr + 2 * skin + 1) {
       const cA = r => notchA(r) + skin / r;

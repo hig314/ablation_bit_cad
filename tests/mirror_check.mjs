@@ -21,7 +21,7 @@ import { buildParts, derived, rampSpan, offsetAngle } from '../web/js/geometry.j
 import { clamp, defaults } from '../web/js/params.js';
 
 const P = clamp({ ...defaults(), ...JSON.parse(readFileSync(process.argv[2], 'utf8')) });
-const { dth, Rb, zTop, zRoot, zStub, off } = derived(P);
+const { dth, Rb, rFlat, zTop, zRoot, zStub, off } = derived(P);
 const { rc, f, c, N, H } = P, rBlade = Rb - c;
 
 /** Inside a blade grown by the fit clearance on every face. */
@@ -38,7 +38,7 @@ function inPocket(x, y, z, detail) {
 
 function shouldBePlastic(x, y, z) {
   const r = Math.hypot(x, y);
-  if (r < rc || r > Rb) return false;
+  if (r < rFlat || r > Rb) return false;
   let t = Math.atan2(y, x); if (t < 0) t += 2 * Math.PI;
   const k = Math.floor(t / dth);
   // the same ramp the tool builds: the full climb over whatever arc the

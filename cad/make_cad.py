@@ -205,10 +205,24 @@ def blade_profile(P, grow=0.0, root=True):
     pts.append((-g, zRoot))
     return pts
 
+def flat_radius(P):
+    """
+    Radius of the flat copper centre: the pin head, and with it the inner
+    edge of the printed fins. It reaches past the blade's inner root step,
+    so everything inside it is copper below and collar above, and every
+    piece of plastic in there descends into the hole the head melts rather
+    than sitting on ice that nothing has cleared. Mirrors derived().rFlat in
+    web/js/geometry.js.
+    """
+    return P["rc"] + P["f"]
+
+
 def blade_solid(P, th, grow=0.0):
     R, rc, ring, c = P["R"], P["rc"], P["ring"], P["c"]
     Rb = R - ring
-    r_in = rc - (grow if grow > 0 else 0.0)
+    # The blade proper begins where the flat centre ends; only its inner
+    # root step reaches further in, and that sits above the collar.
+    r_in = flat_radius(P) - (grow if grow > 0 else 0.0)
     r_out = Rb - c + (grow if grow > 0 else 0.0)      # blades stop c short of the ring
     pl = radial_plane(th, r_out)
     body = cq.Workplane(pl).polyline(blade_profile(P, grow)).close().extrude(r_out - r_in)
@@ -220,7 +234,7 @@ def blade_solid(P, th, grow=0.0):
         off = lambda z: te + (tb - te) * min(1.0, max(0.0, z / zt))
         g = grow
         pts = [(-f - g, zStub - g), (off(zStub) + f + g, zStub - g), (off(zRoot) + f + g, zRoot + 0.01), (-f - g, zRoot + 0.01)]
-        pl_in = radial_plane(th, r_in + f + g)          # extrude inward, 0.5 into the stub so the union fuses
+        pl_in = radial_plane(th, r_in + g)              # reaches in to the stub, 0.5 past so the union fuses
         step = cq.Workplane(pl_in).polyline(pts).close().extrude(f + g + 0.5)
         body = body.union(step)
     return body
@@ -240,7 +254,9 @@ def copper_body(P):
 def copper_screw(P):
     rc, rs, hh, H, B = P["rc"], P["rs"], P["hh"], P["H"], P["B"]
     zTop = H + B
-    s = cyl(rc, 0, hh).union(cyl(rs, hh - 0.01, zTop - 1))
+    # The head spans the whole flat centre, so the hole it melts is wide
+    # enough for every piece of plastic that has to follow it down.
+    s = cyl(flat_radius(P), 0, hh).union(cyl(rs, hh - 0.01, zTop - 1))
     socket = cq.Workplane("XY").workplane(offset=-0.5).polygon(6, 4.0 / math.cos(math.pi / 6)).extrude(2.5)  # 4 mm A/F hex, 2 mm deep
     return s.cut(socket)
 
@@ -251,7 +267,7 @@ def printed_body(P, report=None):
     for k in range(N):
         th = k * dth
         # The whole slot, with everything below the ramp taken back out.
-        wedge = sector(rc, Rb, th, th + dth).extrude(zTop)
+        wedge = sector(flat_radius(P), Rb, th, th + dth).extrude(zTop)
         for cutter in ramp_cutters(P, th):
             wedge = wedge.cut(cutter, clean=False, tol=RAMP_FUZZ)
         if cav > 0 and B > hr + 2 * skin + 1:
@@ -280,7 +296,9 @@ def printed_body(P, report=None):
     if ring > 0:
         body = body.union(cyl(R, H, zTop, r_in=Rb - 0.01))
     # centre: collar below the stub, clearance bore above it
-    body = body.union(cyl(rc + 0.01, hh, zStub, r_in=rs + c))
+    # The collar fills the flat centre above the head, riding in its hole and
+    # carrying the inner ends of the printed ramps.
+    body = body.union(cyl(flat_radius(P) + 0.01, hh, zStub, r_in=rs + c))
     body = body.cut(cyl(rc + c, zStub - c, zTop + 1))
     # Pockets for the blades, with clearance on every face.
     #
@@ -400,7 +418,7 @@ copper_body.step   {vol(cu)/1000:.1f} cm3, {vol(cu)/1000*8.96:.0f} g in copper. 
                    Blade roots are stepped {P['f']} mm wide, {P['hr']} mm tall under the disk and along the stub; a
                    fillet of radius <= {P['f']} mm may replace the step. Grind the cutting bevel on the blade bottoms last.
                    Tightest gap for the cutter: between blade roots at the stub, see the viewer's assembly table.
-copper_screw.step  head r = {P['rc']} mm x {P['hh']} mm (flat base), shank r = {P['rs']} mm (thread M{2*P['rs']:.0f}, not modelled),
+copper_screw.step  head r = {P['rc'] + P['f']} mm x {P['hh']} mm (flat base, spans the flat centre), shank r = {P['rs']} mm (thread M{2*P['rs']:.0f}, not modelled),
                    4 mm A/F hex socket 2 mm deep in the base. Thread engagement in the stub about {P['H']+P['B']-1-zStub:.1f} mm.
 printed_body.stl   {vol(pl)/1000:.1f} cm3, ~{vol(pl)/1000*1.27:.0f} g PETG. One part: {P['N']} wedges, outer ring, centre collar.
                    Internal cavities are closed voids (skin {P['skin']} mm). Print with the flat top (z = {P['H']+P['B']}) on

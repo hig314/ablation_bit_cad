@@ -35,11 +35,12 @@ sys.path.insert(0, os.path.join(ROOT, "cad"))
 # other deliberately does not, so these will never reach zero.
 # ---------------------------------------------------------------------------
 EXPLAINED = {
-    "copper_body": (1.0,
+    "copper_body": (1.6,
         "the viewer draws the centre stub as a plain tube bored to the shank "
         "radius, while the CAD script bores the real tap drill through the "
         "stub and 2 mm into the disk; mesh volumes also run slightly under "
-        "exact ones"),
+        "exact ones. The bore is a fixed volume, so it is a larger share of a "
+        "small bit: -0.6% at the defaults, -1.4% at few_teeth"),
     "copper_screw": (8.0,
         "the viewer omits the hex socket that the CAD script cuts in the "
         "screw head"),
@@ -73,24 +74,22 @@ EXPLAINED = {
 # is what protects the rules in the meantime.
 # ---------------------------------------------------------------------------
 UNRESOLVED = {
-    # The ramp is ported, so the two sides now build the same surface and the
-    # printed body agrees to about a percent on any design that fits. What is
-    # left is the cavity, and designs that do not fit.
-    ("default.json", "printed_body"): (-1.09, "cavity shape, and how each side "
-        "handles the corner where a blade's root step ends"),
-    ("few_teeth.json", "printed_body"): (-0.98, "same"),
+    # The ramp and the flat centre are both ported, so the printed body now
+    # agrees to about a percent on any design that fits. What is left is the
+    # cavity, and designs that do not fit.
+    ("default.json", "printed_body"): (-0.86, "cavity shape, and the corner "
+        "where a blade's inner root step ends, which a sector cannot follow"),
+    ("few_teeth.json", "printed_body"): (+0.61, "same"),
     ("many_teeth.json", "printed_body"): (+25.87, "the CAD script cuts nine cavities "
         "that the viewer correctly refuses to make: see the gate-radius disagreement "
         "below. They vent to the outside instead of sealing, which --check now catches"),
-    ("thick_blades.json", "printed_body"): (+32.86, "this design is not buildable. Its "
-        "blades pass through each other inside r = 8.6 mm, and the CAD script's printed "
-        "body comes apart into the main piece plus 8 cm3 of loose wedges, which it "
-        "reports and drops. The comparison is not meaningful, only the fact that both "
-        "sides agree the design fails"),
-    ("thick_blades.json", "copper_body"): (+4.95, "the blades pass through each other "
-        "inside r = 8.6 mm; the viewer adds each blade's volume separately while the "
-        "CAD script unions them, so the viewer counts the overlap twice. The tool says "
-        "so in its warnings"),
+    ("thick_blades.json", "printed_body"): (-34.65, "this design is not buildable. Its "
+        "blades pass through each other, and the CAD script's printed body comes apart, "
+        "which it reports and drops. Only the fact that both sides call it a failure "
+        "means anything here"),
+    ("thick_blades.json", "copper_body"): (+2.21, "the blades pass through each other "
+        "near the middle; the viewer adds each blade's volume separately while the CAD "
+        "script unions them, so the viewer counts the overlap twice"),
 }
 UNRESOLVED_CAVITIES = {"many_teeth.json": (0, 9)}
 
